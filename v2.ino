@@ -2,6 +2,15 @@
 #define FUNCTION_MARK_BYTE 0x04
 #define BUFFER_SIZE 256
 
+// Data structure to hold anchor node information
+struct AnchorNode {
+  uint8_t role;
+  uint8_t id;
+  float distance;   // Distance in meters
+  float fpRssi;     // FP RSSI in dB
+  float rxRssi;     // RX RSSI in dB
+};
+
 // Data structure to hold the parsed values
 struct NLinkData {
   uint8_t frameHeader;
@@ -11,7 +20,7 @@ struct NLinkData {
   uint8_t id;
   uint32_t systemTime;
   float eop_x, eop_y, eop_z;
-  float pos_x, pos_y, pos_z;
+  float pos_x, pos_y, pos_z; // the estimated position
   float vel_x, vel_y, vel_z;
   float gyro_x, gyro_y, gyro_z;
   float acc_x, acc_y, acc_z;
@@ -20,6 +29,7 @@ struct NLinkData {
   uint32_t localTime;
   float voltage;
   uint8_t validNodeQuantity;
+  AnchorNode anchors[4]; // Array of anchor nodes (maximum of 4)
 };
 
 NLinkData parsedData;
@@ -64,6 +74,8 @@ void parsePacket(const uint8_t *buffer) {
   parsedData.vel_z = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 10000.0f;
   offset += 3;
 
+  offset += 9; // reserved
+
   parsedData.gyro_x = *((float*)&buffer[offset]);
   offset += 4;
   parsedData.gyro_y = *((float*)&buffer[offset]);
@@ -78,13 +90,15 @@ void parsePacket(const uint8_t *buffer) {
   parsedData.acc_z = *((float*)&buffer[offset]);
   offset += 4;
 
+  offset += 12; //reserved
+
   parsedData.angle_x = ((int16_t)(buffer[offset] | (buffer[offset + 1] << 8))) / 100.0f;
   offset += 2;
   parsedData.angle_y = ((int16_t)(buffer[offset] | (buffer[offset + 1] << 8))) / 100.0f;
   offset += 2;
   parsedData.angle_z = ((int16_t)(buffer[offset] | (buffer[offset + 1] << 8))) / 100.0f;
   offset += 2;
-
+  
   parsedData.q0 = *((float*)&buffer[offset]);
   offset += 4;
   parsedData.q1 = *((float*)&buffer[offset]);
@@ -94,13 +108,31 @@ void parsePacket(const uint8_t *buffer) {
   parsedData.q3 = *((float*)&buffer[offset]);
   offset += 4;
 
+  offset += 4; // reserved
+
   parsedData.localTime = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16) | (buffer[offset + 3] << 24);
   offset += 4;
+
+  offset += 10; // reserved
 
   parsedData.voltage = ((int16_t)(buffer[offset] | (buffer[offset + 1] << 8))) / 1000.0f;
   offset += 2;
 
   parsedData.validNodeQuantity = buffer[offset++];
+
+  // Parse each anchor node based on validNodeQuantity
+  for (int i = 0; i < parsedData.validNodeQuantity && i < 4; i++) {
+    parsedData.anchors[i].role = buffer[offset++];
+    parsedData.anchors[i].id = buffer[offset++];
+
+    parsedData.anchors[i].distance = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 1000.0f;
+    offset += 3;
+
+    parsedData.anchors[i].fpRssi = -buffer[offset++] / 2.0f;
+    parsedData.anchors[i].rxRssi = -buffer[offset++] / 2.0f;
+
+    offset += 6; // Skip reserved bytes for each anchor node
+  }
 }
 
 void printParsedData() {
@@ -122,35 +154,31 @@ void printParsedData() {
   Serial.print("Pos Y: "); Serial.println(parsedData.pos_y);
   Serial.print("Pos Z: "); Serial.println(parsedData.pos_z);
 
-  // Serial.println("\n--- Velocity ---");
-  // Serial.print("Vel X: "); Serial.println(parsedData.vel_x);
-  // Serial.print("Vel Y: "); Serial.println(parsedData.vel_y);
-  // Serial.print("Vel Z: "); Serial.println(parsedData.vel_z);
-
-  // Serial.println("\n--- Gyroscope ---");
-  // Serial.print("Gyro X: "); Serial.println(parsedData.gyro_x);
-  // Serial.print("Gyro Y: "); Serial.println(parsedData.gyro_y);
-  // Serial.print("Gyro Z: "); Serial.println(parsedData.gyro_z);
-
-  // Serial.println("\n--- Acceleration ---");
-  // Serial.print("Acc X: "); Serial.println(parsedData.acc_x);
-  // Serial.print("Acc Y: "); Serial.println(parsedData.acc_y);
-  // Serial.print("Acc Z: "); Serial.println(parsedData.acc_z);
-
-  // Serial.println("\n--- Angle ---");
-  // Serial.print("Angle X: "); Serial.println(parsedData.angle_x);
-  // Serial.print("Angle Y: "); Serial.println(parsedData.angle_y);
-  // Serial.print("Angle Z: "); Serial.println(parsedData.angle_z);
-
-  // Serial.println("\n--- Quaternion ---");
-  // Serial.print("Q0: "); Serial.println(parsedData.q0);
-  // Serial.print("Q1: "); Serial.println(parsedData.q1);
-  // Serial.print("Q2: "); Serial.println(parsedData.q2);
-  // Serial.print("Q3: "); Serial.println(parsedData.q3);
-
-  // Serial.print("Local Time: "); Serial.println(parsedData.localTime);
   Serial.print("Voltage: "); Serial.println(parsedData.voltage);
   Serial.print("Valid Node Quantity: "); Serial.println(parsedData.validNodeQuantity);
+
+  // Print anchor node data
+  Serial.println("\n--- Anchor Nodes ---");
+  for (int i = 0; i < parsedData.validNodeQuantity && i < 4; i++) {
+    Serial.print("Anchor ");
+    Serial.print(i + 1);
+    Serial.println(":");
+
+    Serial.print("  Role: ");
+    Serial.println(parsedData.anchors[i].role);
+
+    Serial.print("  ID: ");
+    Serial.println(parsedData.anchors[i].id);
+
+    Serial.print("  Distance (m): ");
+    Serial.println(parsedData.anchors[i].distance);
+
+    Serial.print("  FP RSSI (dB): ");
+    Serial.println(parsedData.anchors[i].fpRssi);
+
+    Serial.print("  RX RSSI (dB): ");
+    Serial.println(parsedData.anchors[i].rxRssi);
+  }
   Serial.println("--------------------");
 }
 
@@ -160,11 +188,9 @@ void loop() {
   static bool packetStarted = false;
   static uint16_t frameLength = 0;
 
-  // Check if data is available on Serial1 (from RX)
   while (Serial1.available()) {
     uint8_t incomingByte = Serial1.read();
 
-    // Look for the start of the packet
     if (!packetStarted) {
       if (incomingByte == START_BYTE) {
         packetStarted = true;
@@ -194,14 +220,12 @@ void loop() {
         for (int i = 0; i < frameLength - 1; i++) {
           calculatedChecksum += buffer[i];
         }
-
         if (calculatedChecksum == buffer[frameLength - 1]) {
           parsePacket(buffer);
           printParsedData();
         } else {
           Serial.println("Checksum failed.");
         }
-
         packetStarted = false;
         bufferIndex = 0;
       }
