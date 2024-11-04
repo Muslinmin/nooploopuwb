@@ -1,0 +1,91 @@
+%% Real-Time Weighted Least Squares Visualization for Underground Carpark
+
+figure;
+hold on;
+axis equal;
+grid on;
+
+% Set plot limits to simulate the carpark boundaries
+xlim([-50, 50]);  % Adjust as needed for carpark dimensions
+ylim([-50, 50]);  
+
+% Draw walls on all four sides of the carpark
+%line([0, 10], [0, 0], 'Color', 'k', 'LineWidth', 3);  % Bottom wall
+%line([0, 10], [10, 10], 'Color', 'k', 'LineWidth', 3); % Top wall
+%line([0, 0], [0, 10], 'Color', 'k', 'LineWidth', 3);   % Left wall
+%line([10, 10], [0, 10], 'Color', 'k', 'LineWidth', 3); % Right wall
+
+
+% Pillar1 
+% Coordinates of the shaded square
+x = [2, 3, 3, 2];
+y = [2, 2, 3, 3];
+
+% Draw the filled square
+fill(x, y, 'g', 'FaceAlpha', 0.3); % 'g' for green color and 0.3 for transparency
+
+% Pillar2
+x1 = [2, 2, 3, 3];
+y1 = [7, 8, 8, 7];
+
+% Draw the filled square
+fill(x1, y1, 'g', 'FaceAlpha', 0.3); % 'g' for green color and 0.3 for transparency
+
+
+
+% Pillar3
+x2 = [7, 7, 8, 8];
+y2 = [7, 8, 8, 7];
+
+% Draw the filled square
+fill(x2, y2, 'g', 'FaceAlpha', 0.3); % 'g' for green color and 0.3 for transparency
+
+% Pillar4
+x3 = [7, 7, 8, 8];
+y3 = [2, 3, 3, 2];
+
+% Draw the filled square
+fill(x3, y3, 'g', 'FaceAlpha', 0.3); % 'g' for green color and 0.3 for transparency
+
+
+% Ensure existing plot elements stay visible
+hold on;
+
+% Plot fixed anchor positions
+anchorCoordinates = [0, 0; 0.485, 11.19; 5.478, 11.254; 6.866, 0];  
+for i = 1:size(anchorCoordinates, 1)
+    plot(anchorCoordinates(i, 1), anchorCoordinates(i, 2), 'bo', 'MarkerSize', 8, 'DisplayName', ['Anchor ', num2str(i)]);
+end
+
+% Initialize the plot for the tag position (will update in the loop)
+tagPositionPlot = plot(NaN, NaN, 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'DisplayName', 'Estimated Tag Position');
+
+
+% Define the serial port and settings
+if ~isempty(instrfind)
+    fclose(instrfind);
+    delete(instrfind);
+end
+
+% Set up the serial port connection (adjust 'COM3' and baud rate as needed)
+s = serial('COM5', 'BaudRate', 115200); % Adjust COM port and baud rate
+fopen(s);
+
+
+% Infinite loop for real-time position updates
+while true
+    % Fetch or update the latest tag data
+    % Replace the following liazne with your real data acquisition method
+    %anchorData = getLatestAnchorData(); % Function to retrieve real-time anchor data
+    [tagCoordinates, anchorData] = ExtractAnchorAndTagInfo(s);
+  
+    % Extract ranges and call the WLS function to estimate the tag position
+    anchorRanges = anchorData(:, 1);  % Assuming distances are in the first column
+    %tagPosition = weightedLeastSquares(anchorRanges);
+    tagPosition = tagCoordinates;
+    % Update the position of the tag on the plot
+    set(tagPositionPlot, 'XData', tagPosition(1), 'YData', tagPosition(2));
+    
+    % Pause briefly to control the update rate
+    pause(0.1);  % Adjust as needed for smoother or faster updates
+end
