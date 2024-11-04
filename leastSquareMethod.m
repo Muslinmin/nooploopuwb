@@ -13,14 +13,31 @@ function tagPosition = leastSquareMethod(anchorRanges)
         2.086, 0        % A3
     ];
 
+    % Distances for each anchor
+    r0 = anchorRanges(1);
+    r1 = anchorRanges(2);
+    r2 = anchorRanges(3);
+    r3 = anchorRanges(4);
+
+    % Reference anchor and other anchors
+    A0 = anchorPositions(1, :);
+    A1 = anchorPositions(2, :);
+    A2 = anchorPositions(3, :);
+    A3 = anchorPositions(4, :);
+
     % Set up the system of equations in the form A*x = b
-    % Use the first anchor as the reference point
-    A = 2 * (anchorPositions(2:end, :) - anchorPositions(1, :));
+    A = [
+        2 * (A1(1) - A0(1)), 2 * (A1(2) - A0(2));
+        2 * (A2(1) - A0(1)), 2 * (A2(2) - A0(2));
+        2 * (A3(1) - A0(1)), 2 * (A3(2) - A0(2))
+    ];
 
-    % Construct vector b using squared distances and coordinates
-    b = (anchorRanges(2:end).^2 - anchorRanges(1)^2 + sum(anchorPositions(1, :).^2, 2)) - ...
-        (sum(anchorPositions(2:end, :).^2, 2));
+    b = [
+        r0^2 - r1^2 - A0(1)^2 + A1(1)^2 - A0(2)^2 + A1(2)^2;
+        r0^2 - r2^2 - A0(1)^2 + A2(1)^2 - A0(2)^2 + A2(2)^2;
+        r0^2 - r3^2 - A0(1)^2 + A3(1)^2 - A0(2)^2 + A3(2)^2
+    ];
 
-    % Solve for the tag position using Least Squares (without weights)
+    % Solve for the tag position using Least Squares (no weights)
     tagPosition = (A' * A) \ (A' * b);
 end
