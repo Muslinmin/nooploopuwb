@@ -2,6 +2,90 @@
 #define FUNCTION_MARK_BYTE 0x04
 #define BUFFER_SIZE 256
 
+#include "FastIMU.h"
+#include <Wire.h>
+#include <Servo.h>
+
+
+
+//--- Kalman
+MPU6500 mpu;  // Define mpu object from class MPU6500
+AccelData accelOut;
+GyroData gyroOut;
+calData cal = {0};  // Calibration data
+
+float pitch = 0.0, roll = 0.0, yaw = 0.0;  // Euler angles
+const float alpha = 0.97;  // Complementary filter coefficient (between 0 and 1)
+unsigned long prevTime = 0;
+
+float gyro_X_Euler = 1;
+float gyro_Y_Euler = 1;
+
+
+
+class Kalman {
+public:
+  float Q_angle;   // Process noise variance for the accelerometer
+  float Q_bias;    // Process noise variance for the gyroscope bias
+  float R_measure; // Measurement noise variance
+
+  float angle;     // The angle calculated by the Kalman filter
+  float bias;      // The gyro bias calculated by the Kalman filter
+  float rate;      // Unbiased rate calculated by subtracting bias from gyro rate
+
+  float P[2][2];   // Error covariance matrix
+
+  Kalman() {
+    Q_angle = 0.0025f; // 0.003f
+    Q_bias = 0.003f; // 0.003f
+    R_measure = 0.03f; // base value was 0.03f
+
+    angle = 0.0f;
+    bias = 0.0f;
+    rate = 0.0f;
+
+    P[0][0] = 0.0f;
+    P[0][1] = 0.0f;
+    P[1][0] = 0.0f;
+    P[1][1] = 0.0f;
+  }
+
+  float getAngle(float newAngle, float newRate, float dt) {
+    // Predict
+    rate = newRate - bias; // new Angular velocity - bias
+    angle += dt * rate;    // add the new angle to the previous angle
+
+    P[0][0] += dt * (dt * P[1][1] - P[0][1] - P[1][0] + Q_angle);
+    P[0][1] -= dt * P[1][1];
+    P[1][0] -= dt * P[1][1];
+    P[1][1] += Q_bias * dt;
+
+    // Update
+    float S = P[0][0] + R_measure;
+    float K[2];
+    K[0] = P[0][0] / S;
+    K[1] = P[1][0] / S;
+
+    float y = newAngle - angle;
+    angle += K[0] * y;
+    bias += K[1] * y;
+
+    float P00_temp = P[0][0];
+    float P01_temp = P[0][1];
+
+    P[0][0] -= K[0] * P00_temp;
+    P[0][1] -= K[0] * P01_temp;
+    P[1][0] -= K[1] * P00_temp;
+    P[1][1] -= K[1] * P01_temp;
+
+    return angle;
+  }
+};
+
+Kalman kalmanPitch;
+Kalman kalmanRoll;
+
+//--- Kalman
 
 
 
@@ -42,12 +126,59 @@ struct NLinkData {
 
 NLinkData parsedData;
 
+
+void computeKalmanPitchAndRoll(){
+  mpu.update();
+  mpu.getAccel(&accelOut);
+  mpu.getGyro(&gyroOut);
+
+  // Calculate time difference
+  unsigned long currentTime = millis();
+  float dt = (currentTime - prevTime) / 1000.0;  // Convert to seconds
+  prevTime = currentTime;
+
+  // Calculate pitch and roll from accelerometer data
+  float accelPitch = atan2(accelOut.accelY, sqrt(accelOut.accelX * accelOut.accelX + accelOut.accelZ * accelOut.accelZ)) * 180.0 / PI;
+  float accelRoll = atan2(-accelOut.accelX, sqrt(accelOut.accelY * accelOut.accelY + accelOut.accelZ * accelOut.accelZ)) * 180.0 / PI;
+
+  // Use the Kalman filter to estimate pitch and roll angles
+  pitch = kalmanPitch.getAngle(accelPitch, gyroOut.gyroX, dt);
+  roll = kalmanRoll.getAngle(accelRoll, gyroOut.gyroY, dt);
+  // delay(40);  // Add some delay for stability
+}
+
+
 void setup() {
+  cal.valid = false;  // Mark calibration as invalid initially
+  Serial.begin(9600);
+  Wire.begin();
+  Wire.setClock(400000);  // Set the I2C clock to 400 kHz
+  delay(2000);
+
+  // Initialize MPU6500 with the specified address
+  int err = mpu.init(cal, 0x68);
+  if (err != 0) {
+    while (true) {
+      ;  // Stop execution if initialization fails
+    }
+  } else {
+    // "MPU6500 Initialized"
+  }
+
+  // Perform calibration
+  mpu.calibrateAccelGyro(&cal);
+
+  // Reinitialize with the new calibration data
+  mpu.init(cal, 0x68);
+
+
+
   Serial.begin(115200);
   while (!Serial); // Wait for the serial monitor to open
   Serial.println("Starting...");
 
   Serial1.begin(115200); // Ensure this matches the external device's baud rate
+
 }
 
 void parsePacket(const uint8_t *buffer) {
@@ -205,17 +336,17 @@ void sendCoordinates() {
   Serial.print(',');
   Serial.print(0);
   Serial.print(';');
-//A1
+  //A1
   Serial.print(0);
   Serial.print(',');
   Serial.print(11);
   Serial.print(';');
-//A2
+  //A2
     Serial.print(5);
   Serial.print(',');
   Serial.print(11);
   Serial.print(';');
-//A3
+  //A3
     Serial.print(6);
   Serial.print(',');
   Serial.print(0);
@@ -355,7 +486,7 @@ void loop() {
   static int bufferIndex = 0;
   static bool packetStarted = false;
   static uint16_t frameLength = 0;
-
+  computeKalmanPitchAndRoll();
   while (Serial1.available()) {
     uint8_t incomingByte = Serial1.read();
 
@@ -393,6 +524,7 @@ void loop() {
           // printParsedData();
           if(parsedData.validNodeQuantity >= 4){
               sendExtendedData();
+              
           }
         } else {
           Serial.println("Checksum failed.");
