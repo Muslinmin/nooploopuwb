@@ -2,6 +2,9 @@
 #define FUNCTION_MARK_BYTE 0x04
 #define BUFFER_SIZE 256
 
+
+
+
 // Data structure to hold anchor node information
 struct AnchorNode {
   uint8_t role;
@@ -9,6 +12,11 @@ struct AnchorNode {
   float distance;   // Distance in meters
   float fpRssi;     // FP RSSI in dB
   float rxRssi;     // RX RSSI in dB
+};
+
+struct Position {
+  float x;
+  float y;
 };
 
 // Data structure to hold the parsed values
@@ -182,6 +190,166 @@ void printParsedData() {
   Serial.println("--------------------");
 }
 
+void sendCoordinates() {
+  // Convert the tag's coordinates to int (scaled by 10 to keep one decimal place)
+  int tag_x = static_cast<int>(parsedData.pos_x);
+  int tag_y = static_cast<int>(parsedData.pos_y);
+
+  // Send the tag's coordinates
+  Serial.print(tag_x);
+  Serial.print(',');
+  Serial.print(tag_y);
+  Serial.print(';');
+ //A0
+  Serial.print(0);
+  Serial.print(',');
+  Serial.print(0);
+  Serial.print(';');
+//A1
+  Serial.print(0);
+  Serial.print(',');
+  Serial.print(11);
+  Serial.print(';');
+//A2
+    Serial.print(5);
+  Serial.print(',');
+  Serial.print(11);
+  Serial.print(';');
+//A3
+    Serial.print(6);
+  Serial.print(',');
+  Serial.print(0);
+  Serial.print(';');
+
+  // End with a newline character
+  Serial.println();
+}
+
+
+Position weightedLeastSquares() {
+  float anchorRanges[4];
+  for (int i = 0; i < 4; i++) {
+    anchorRanges[i] = parsedData.anchors[i].distance;
+  }
+  // Fixed anchor positions
+  float anchorPositions[4][2] = {
+    {0, 0},         // Anchor 0 at (0, 0)
+    {0.485, 11.19}, // Anchor 1 at (0.485, 11.19)
+    {5.478, 11.254},// Anchor 2 at (5.478, 11.254)
+    {6.866, 0}      // Anchor 3 at (6.866, 0)
+  };
+
+  // Anchor distances (ranges)
+  float r0 = anchorRanges[0];
+  float r1 = anchorRanges[1];
+  float r2 = anchorRanges[2];
+  float r3 = anchorRanges[3];
+
+  // Fixed weights for each anchor (adjust these if variance-based weights are available)
+  float w1 = 0.001777;
+  float w2 = 0.001704728;
+  float w3 = 0.001193;
+
+  // Set up the system of equations
+  float A[3][2] = {
+    {2 * (anchorPositions[1][0] - anchorPositions[0][0]), 2 * (anchorPositions[1][1] - anchorPositions[0][1])},
+    {2 * (anchorPositions[2][0] - anchorPositions[0][0]), 2 * (anchorPositions[2][1] - anchorPositions[0][1])},
+    {2 * (anchorPositions[3][0] - anchorPositions[0][0]), 2 * (anchorPositions[3][1] - anchorPositions[0][1])}
+  };
+
+  float b[3] = {
+    r0 * r0 - r1 * r1 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[1][0] * anchorPositions[1][0]
+    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[1][1] * anchorPositions[1][1],
+    
+    r0 * r0 - r2 * r2 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[2][0] * anchorPositions[2][0]
+    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[2][1] * anchorPositions[2][1],
+    
+    r0 * r0 - r3 * r3 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[3][0] * anchorPositions[3][0]
+    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[3][1] * anchorPositions[3][1]
+  };
+
+  // Compute the weighted least squares solution
+  float W[3][3] = {{w1, 0, 0}, {0, w2, 0}, {0, 0, w3}};
+  
+  // A' * W
+  float ATW[2][3];
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      ATW[i][j] = A[0][i] * W[j][0] + A[1][i] * W[j][1] + A[2][i] * W[j][2];
+    }
+  }
+
+  // A' * W * A
+  float ATWA[2][2];
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 2; j++) {
+      ATWA[i][j] = ATW[i][0] * A[0][j] + ATW[i][1] * A[1][j] + ATW[i][2] * A[2][j];
+    }
+  }
+
+  // A' * W * b
+  float ATWb[2] = {ATW[0][0] * b[0] + ATW[0][1] * b[1] + ATW[0][2] * b[2],
+                   ATW[1][0] * b[0] + ATW[1][1] * b[1] + ATW[1][2] * b[2]};
+
+  // Invert 2x2 matrix ATWA to solve for x = (A' * W * A)^-1 * (A' * W * b)
+  float det = ATWA[0][0] * ATWA[1][1] - ATWA[0][1] * ATWA[1][0];
+  if (det == 0) {
+    // Handle the case where the determinant is zero (no unique solution)
+    return {0, 0}; // Return a default value (or handle error as needed)
+  }
+
+  float invATWA[2][2] = {{ ATWA[1][1] / det, -ATWA[0][1] / det},
+                         {-ATWA[1][0] / det,  ATWA[0][0] / det}};
+
+  // Final tag position (x, y)
+  Position tagPosition;
+  tagPosition.x = invATWA[0][0] * ATWb[0] + invATWA[0][1] * ATWb[1];
+  tagPosition.y = invATWA[1][0] * ATWb[0] + invATWA[1][1] * ATWb[1];
+
+  return tagPosition;
+}
+
+
+
+void sendExtendedData() {
+  // Convert the tag's coordinates to int (scaled by 10 to keep one decimal place)
+  // Position tagPosition = weightedLeastSquares();
+  // int tag_x = tagPosition.x;
+  // int tag_y = tagPosition.y;
+  int tag_x = static_cast<int>(parsedData.pos_x * 10);
+  int tag_y = static_cast<int>(parsedData.pos_y * 10);
+
+  // Send the tag's position
+  Serial.print(tag_x);
+  Serial.print(',');
+  Serial.print(tag_y);
+  Serial.print(';');
+
+  // Send each anchor's data: distance, fpRssi, and rxRssi
+  for (int i = 0; i < parsedData.validNodeQuantity && i < 4; i++) {
+    // Convert each anchor's data to int (scaled by 10 to keep one decimal place)
+    int anchor_distance = static_cast<int>(parsedData.anchors[i].distance * 10);
+    int anchor_fpRssi = static_cast<int>(parsedData.anchors[i].fpRssi * 10);
+    int anchor_rxRssi = static_cast<int>(parsedData.anchors[i].rxRssi * 10);
+
+    Serial.print(anchor_distance);
+    Serial.print(',');
+    Serial.print(anchor_fpRssi);
+    Serial.print(',');
+    Serial.print(anchor_rxRssi);
+
+    // Add a semicolon after each anchor data except the last one
+    if (i < parsedData.validNodeQuantity - 1) {
+      Serial.print(';');
+    }
+  }
+
+  // End with a newline character
+  Serial.println();
+}
+
+
+
 void loop() {
   static uint8_t buffer[BUFFER_SIZE];
   static int bufferIndex = 0;
@@ -222,7 +390,10 @@ void loop() {
         }
         if (calculatedChecksum == buffer[frameLength - 1]) {
           parsePacket(buffer);
-          printParsedData();
+          // printParsedData();
+          if(parsedData.validNodeQuantity >= 4){
+              sendExtendedData();
+          }
         } else {
           Serial.println("Checksum failed.");
         }
