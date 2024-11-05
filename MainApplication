@@ -6,8 +6,8 @@ axis equal;
 grid on;
 
 % Set plot limits to simulate the carpark boundaries
-xlim([-11, 10]);  % Adjust as needed for carpark dimensions
-ylim([-11, 10]);  
+xlim([-5, 14]);  % Adjust as needed for carpark dimensions
+ylim([-3, 20]);  
 
 % Draw the pillars in the carpark
 fill([2, 3, 3, 2], [2, 2, 3, 3], 'g', 'FaceAlpha', 0.3);  % Pillar1
@@ -25,21 +25,15 @@ end
 tagPositionPlot = plot(NaN, NaN, 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'DisplayName', 'Estimated Tag Position');
 
 % Load the car icon image
-carImage = imread('car.png');  % Load the provided car image
+[carImage, ~, carAlpha] = imread('car.png');  % Load the provided car image with alpha
 
+% Desired width and height of the car in plot units
+desiredWidth = 2;  % Adjust as needed for car size
+desiredHeight = desiredWidth / (size(carImage, 2) / size(carImage, 1));  % Maintain aspect ratio
 
-% Get the aspect ratio of the image
-[imgHeight, imgWidth, ~] = size(carImage);
-aspectRatio = imgWidth / imgHeight;
-
-% Desired width of the car image in plot units
-desiredWidth = 2;  % Adjust this to scale the car icon as needed
-desiredHeight = desiredWidth / aspectRatio;  % Scale height based on aspect ratio
-
-% Initial display of the car image (centered and scaled based on aspect ratio)
-carImagePlot = imshow(carImage, 'XData', [-desiredWidth/2, desiredWidth/2], ...
-                                'YData', [-desiredHeight/2, desiredHeight/2]);
-
+% Display the car image at an initial position (e.g., center of the plot)
+carImagePlot = image('CData', carImage, 'XData', [0, desiredWidth], 'YData', [0, desiredHeight]);
+set(carImagePlot, 'AlphaData', carAlpha);  % Apply transparency if available
 
 % Define the serial port and settings
 if ~isempty(instrfind)
@@ -48,34 +42,21 @@ if ~isempty(instrfind)
 end
 
 % Set up the serial port connection with higher baud rate and continuous read mode
-s = serial('COM5', 'BaudRate', 115200);% 'InputBufferSize', 1024, 'ReadAsyncMode', 'continuous'); 
+s = serial('COM5', 'BaudRate', 115200); %'InputBufferSize', 1024, 'ReadAsyncMode', 'continuous'); 
 fopen(s);
 
-% Infinite loop for real-time position and orientation updates
+% Infinite loop for real-time position updates
 while true
     % Fetch or update the latest tag data
     [tagCoordinates, anchorData, pitchRoll] = ExtractAnchorAndTagInfo(s);
+    tagPosition = tagCoordinates;
 
-    % Use tag coordinates as the estimated tag position
-    tagPosition = tagCoordinates
-
-    % Update the position of the tag on the plot
-    set(tagPositionPlot, 'XData', tagPosition(1), 'YData', tagPosition(2));
-    
-    % Rotate the square representing the car based on pitch or roll data
-    orientationAngle = deg2rad(pitchRoll(1));  % Convert pitch to radians for yaw simulation
-    rotationMatrix = [cos(orientationAngle), -sin(orientationAngle); 
-                      sin(orientationAngle), cos(orientationAngle)];
-
-
-    % Rotate the image and alpha channel based on pitch or roll (simulating yaw)
-    rotatedCarImage = imrotate(carImage, -pitchRoll(1), 'bilinear', 'crop');
-    rotatedCarAlpha = imrotate(carAlpha, -pitchRoll(1), 'bilinear', 'crop');
-
-    % Update the car image position based on tag position
+    % Update the car image position based on tag position (no rotation for now)
     set(carImagePlot, 'XData', [tagPosition(1)-desiredWidth/2, tagPosition(1)+desiredWidth/2], ...
                       'YData', [tagPosition(2)-desiredHeight/2, tagPosition(2)+desiredHeight/2]);
 
+    % Update the position of the tag on the plot
+    set(tagPositionPlot, 'XData', tagPosition(1), 'YData', tagPosition(2));
 
     % Shortened pause for faster updates
     pause(0.01);  % Adjust as needed for smoother or faster updates
