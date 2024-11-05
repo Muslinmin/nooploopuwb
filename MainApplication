@@ -6,9 +6,9 @@ hold on;
 axis equal;
 set(gca, 'Visible', 'off');  % Hide axis and grid lines
 
-% Set plot limits to simulate the carpark boundaries
-xlim([-5, 14]);  % Adjust as needed for carpark dimensions
-ylim([-3, 20]);
+% Set plot limits to simulate the carpark boundaries and control image position
+xlim([-15, 15]);  % Adjust this to shift the image to the left without affecting its width
+ylim([-3, 20]);   % Control vertical positioning of the layout image
 
 % Load the car park layout image
 layoutImage = imread('layout.jpg');  % Load the layout image
@@ -17,13 +17,14 @@ layoutImage = imread('layout.jpg');  % Load the layout image
 [layoutHeight, layoutWidth, ~] = size(layoutImage);
 layoutAspectRatio = layoutWidth / layoutHeight;
 
-% Set desired width and height for the layout image in plot units
+% Set desired width and height for the layout image in plot units based on aspect ratio
 desiredLayoutWidth = 30;  % Adjust this value as needed to fit the plot area
 desiredLayoutHeight = desiredLayoutWidth / layoutAspectRatio;  % Calculate height to maintain aspect ratio
 
-% Display the layout image as the background
-image('CData', layoutImage, 'XData', [-5, desiredLayoutWidth - 5], ...
-      'YData', [desiredLayoutHeight - 3, -3]);  % Reverse YData to correct mirroring
+% Display the layout image as the background with fixed XData and YData
+image('CData', layoutImage, 'XData', [-15, 15], ...   % Fit within axis limits for horizontal positioning
+      'YData', [desiredLayoutHeight - 3, -3]);  % Fit within axis limits for vertical positioning
+      % Reverse YData to correct mirroring without affecting aspect ratio
 
 % Plot fixed anchor positions
 anchorCoordinates = [0, 0; 0.175, 11.22; 9.388, 11.26; 9.308, 0];  
@@ -42,7 +43,14 @@ desiredWidth = 2;  % Adjust as needed for car size
 desiredHeight = desiredWidth / (size(carImage, 2) / size(carImage, 1));  % Maintain aspect ratio
 
 % Display the car image at an initial position (e.g., center of the plot)
-carImagePlot = image('CData', carImage, 'XData', [0, desiredWidth], 'YData', [0, desiredHeight]);
+%carImagePlot = image('CData', carImage, 'XData', [0, desiredWidth], 'YData', [0, desiredHeight]);
+% Define starting position for the car
+startX = 0;
+startY = 5;
+
+% Display the car image at the specified initial position
+carImagePlot = image('CData', carImage, 'XData', [startX, startX + desiredWidth], ...
+                     'YData', [startY, startY + desiredHeight]);
 set(carImagePlot, 'AlphaData', carAlpha);  % Apply transparency if available
 
 % Define the serial port and settings
