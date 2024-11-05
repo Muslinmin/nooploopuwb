@@ -144,13 +144,12 @@ void computeKalmanPitchAndRoll(){
   // Use the Kalman filter to estimate pitch and roll angles
   pitch = kalmanPitch.getAngle(accelPitch, gyroOut.gyroX, dt);
   roll = kalmanRoll.getAngle(accelRoll, gyroOut.gyroY, dt);
-  // delay(40);  // Add some delay for stability
+  delay(1);  // Add some delay for stability
 }
 
 
 void setup() {
   cal.valid = false;  // Mark calibration as invalid initially
-  Serial.begin(9600);
   Wire.begin();
   Wire.setClock(400000);  // Set the I2C clock to 400 kHz
   delay(2000);
@@ -173,12 +172,10 @@ void setup() {
 
 
 
-  Serial.begin(115200);
+  Serial.begin(9600);
   while (!Serial); // Wait for the serial monitor to open
   Serial.println("Starting...");
-
   Serial1.begin(115200); // Ensure this matches the external device's baud rate
-
 }
 
 void parsePacket(const uint8_t *buffer) {
@@ -440,46 +437,43 @@ Position weightedLeastSquares() {
   return tagPosition;
 }
 
-
-
 void sendExtendedData() {
   // Convert the tag's coordinates to int (scaled by 10 to keep one decimal place)
   // Position tagPosition = weightedLeastSquares();
   // int tag_x = tagPosition.x;
   // int tag_y = tagPosition.y;
-  int tag_x = static_cast<int>(parsedData.pos_x * 10);
-  int tag_y = static_cast<int>(parsedData.pos_y * 10);
 
   // Send the tag's position
-  Serial.print(tag_x);
+  Serial.print(parsedData.pos_x);
   Serial.print(',');
-  Serial.print(tag_y);
+  Serial.print(parsedData.pos_y);
   Serial.print(';');
 
   // Send each anchor's data: distance, fpRssi, and rxRssi
   for (int i = 0; i < parsedData.validNodeQuantity && i < 4; i++) {
     // Convert each anchor's data to int (scaled by 10 to keep one decimal place)
-    int anchor_distance = static_cast<int>(parsedData.anchors[i].distance * 10);
-    int anchor_fpRssi = static_cast<int>(parsedData.anchors[i].fpRssi * 10);
-    int anchor_rxRssi = static_cast<int>(parsedData.anchors[i].rxRssi * 10);
-
-    Serial.print(anchor_distance);
+    int anchor_fpRssi = static_cast<int>(parsedData.anchors[i].fpRssi);
+    int anchor_rxRssi = static_cast<int>(parsedData.anchors[i].rxRssi);
+    Serial.print(parsedData.anchors[i].distance);
     Serial.print(',');
-    Serial.print(anchor_fpRssi);
+    Serial.print(parsedData.anchors[i].fpRssi);
     Serial.print(',');
-    Serial.print(anchor_rxRssi);
+    Serial.print(parsedData.anchors[i].rxRssi);
 
     // Add a semicolon after each anchor data except the last one
     if (i < parsedData.validNodeQuantity - 1) {
       Serial.print(';');
     }
   }
+  Serial.print(';');
+  Serial.print(pitch);
+  Serial.print(',');
+  Serial.print(roll);
+  Serial.print(';');
 
   // End with a newline character
   Serial.println();
 }
-
-
 
 void loop() {
   static uint8_t buffer[BUFFER_SIZE];
