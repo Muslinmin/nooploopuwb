@@ -14,9 +14,11 @@ AccelData accelOut;
 GyroData gyroOut;
 calData cal = {0};  // Calibration data
 
-float pitch = 0.0, roll = 0.0, yaw = 0.0;  // Euler angles
-const float alpha = 0.97;  // Complementary filter coefficient (between 0 and 1)
+float pitch = 0.0, roll = 0.0, yaw = 0.0;
+const float alpha = 0.97;
 unsigned long prevTime = 0;
+unsigned long lastSerialActivity = 0; // For tracking serial freeze
+const unsigned long timeout = 5000;   // 5-second timeout
 
 float gyro_X_Euler = 1;
 float gyro_Y_Euler = 1;
@@ -149,33 +151,22 @@ void computeKalmanPitchAndRoll(){
 
 
 void setup() {
-  cal.valid = false;  // Mark calibration as invalid initially
+  cal.valid = false;
   Wire.begin();
-  Wire.setClock(400000);  // Set the I2C clock to 400 kHz
+  Wire.setClock(400000);
   delay(2000);
 
-  // Initialize MPU6500 with the specified address
   int err = mpu.init(cal, 0x68);
-  if (err != 0) {
-    while (true) {
-      ;  // Stop execution if initialization fails
-    }
-  } else {
-    // "MPU6500 Initialized"
-  }
+  if (err != 0) while (true);
 
-  // Perform calibration
   mpu.calibrateAccelGyro(&cal);
-
-  // Reinitialize with the new calibration data
   mpu.init(cal, 0x68);
 
-
-
-  Serial.begin(9600);
-  while (!Serial); // Wait for the serial monitor to open
+  Serial.begin(115200);
+  while (!Serial);
   Serial.println("Starting...");
-  Serial1.begin(115200); // Ensure this matches the external device's baud rate
+  Serial1.begin(115200);
+  lastSerialActivity = millis(); // Initialize last activity timestamp
 }
 
 void parsePacket(const uint8_t *buffer) {
@@ -475,13 +466,29 @@ void sendExtendedData() {
   Serial.println();
 }
 
+void resetSerialIfNeeded() {
+  if (millis() - lastSerialActivity > timeout) {
+    Serial.end();
+    Serial1.end();
+    delay(100);  // Optional delay before reinitializing
+    Serial.begin(115200);
+    Serial1.begin(115200);
+    lastSerialActivity = millis();
+    Serial.println("Serial reinitialized after timeout.");
+  }
+}
+
 void loop() {
   static uint8_t buffer[BUFFER_SIZE];
   static int bufferIndex = 0;
   static bool packetStarted = false;
   static uint16_t frameLength = 0;
   computeKalmanPitchAndRoll();
+
+  resetSerialIfNeeded(); // Call function to check for freezes
+
   while (Serial1.available()) {
+    lastSerialActivity = millis(); // Update last activity timestamp
     uint8_t incomingByte = Serial1.read();
 
     if (!packetStarted) {
@@ -489,7 +496,7 @@ void loop() {
         packetStarted = true;
         bufferIndex = 0;
         frameLength = 0;
-        buffer[bufferIndex++] = incomingByte; // Store START_BYTE
+        buffer[bufferIndex++] = incomingByte;
       }
     } else {
       buffer[bufferIndex++] = incomingByte;
@@ -515,10 +522,8 @@ void loop() {
         }
         if (calculatedChecksum == buffer[frameLength - 1]) {
           parsePacket(buffer);
-          // printParsedData();
           if(parsedData.validNodeQuantity >= 4){
               sendExtendedData();
-              
           }
         } else {
           Serial.println("Checksum failed.");
