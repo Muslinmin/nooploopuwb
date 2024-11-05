@@ -1,19 +1,29 @@
 %% Real-Time Weighted Least Squares Visualization for Underground Carpark
 
+% Set up the figure and hold on for multiple elements
 figure;
 hold on;
 axis equal;
-grid on;
+set(gca, 'Visible', 'off');  % Hide axis and grid lines
 
 % Set plot limits to simulate the carpark boundaries
 xlim([-5, 14]);  % Adjust as needed for carpark dimensions
-ylim([-3, 20]);  
+ylim([-3, 20]);
 
-% Draw the pillars in the carpark
-fill([2, 3, 3, 2], [2, 2, 3, 3], 'g', 'FaceAlpha', 0.3);  % Pillar1
-fill([2, 2, 3, 3], [7, 8, 8, 7], 'g', 'FaceAlpha', 0.3);  % Pillar2
-fill([7, 7, 8, 8], [7, 8, 8, 7], 'g', 'FaceAlpha', 0.3);  % Pillar3
-fill([7, 7, 8, 8], [2, 3, 3, 2], 'g', 'FaceAlpha', 0.3);  % Pillar4
+% Load the car park layout image
+layoutImage = imread('layout.jpg');  % Load the layout image
+
+% Get the aspect ratio of the layout image
+[layoutHeight, layoutWidth, ~] = size(layoutImage);
+layoutAspectRatio = layoutWidth / layoutHeight;
+
+% Set desired width and height for the layout image in plot units
+desiredLayoutWidth = 30;  % Adjust this value as needed to fit the plot area
+desiredLayoutHeight = desiredLayoutWidth / layoutAspectRatio;  % Calculate height to maintain aspect ratio
+
+% Display the layout image as the background
+image('CData', layoutImage, 'XData', [-5, desiredLayoutWidth - 5], ...
+      'YData', [desiredLayoutHeight - 3, -3]);  % Reverse YData to correct mirroring
 
 % Plot fixed anchor positions
 anchorCoordinates = [0, 0; 0.175, 11.22; 9.388, 11.26; 9.308, 0];  
@@ -25,7 +35,7 @@ end
 tagPositionPlot = plot(NaN, NaN, 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'DisplayName', 'Estimated Tag Position');
 
 % Load the car icon image
-[carImage, ~, carAlpha] = imread('car.png');  % Load the provided car image with alpha
+[carImage, ~, carAlpha] = imread('car.png');  % Load the car image with alpha
 
 % Desired width and height of the car in plot units
 desiredWidth = 2;  % Adjust as needed for car size
@@ -42,7 +52,7 @@ if ~isempty(instrfind)
 end
 
 % Set up the serial port connection with higher baud rate and continuous read mode
-s = serial('COM5', 'BaudRate', 115200); %'InputBufferSize', 1024, 'ReadAsyncMode', 'continuous'); 
+s = serial('COM5', 'BaudRate', 115200); % Adjust 'COM5' as needed
 fopen(s);
 
 % Infinite loop for real-time position updates
