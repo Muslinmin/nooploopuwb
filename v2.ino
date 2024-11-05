@@ -1,81 +1,538 @@
-%% Real-Time Weighted Least Squares Visualization for Underground Carpark
+#define START_BYTE 0x55
+#define FUNCTION_MARK_BYTE 0x04
+#define BUFFER_SIZE 256
 
-% Set up the figure and hold on for multiple elements
-figure;
-hold on;
-axis equal;
-set(gca, 'Visible', 'off');  % Hide axis and grid lines
+#include "FastIMU.h"
+#include <Wire.h>
+#include <Servo.h>
 
-% Set plot limits to simulate the carpark boundaries and control image position
-xlim([-15, 15]);  % Adjust this to shift the image to the left without affecting its width
-ylim([-3, 20]);   % Control vertical positioning of the layout image
 
-% Load the car park layout image
-layoutImage = imread('layout.jpg');  % Load the layout image
 
-% Get the aspect ratio of the layout image
-[layoutHeight, layoutWidth, ~] = size(layoutImage);
-layoutAspectRatio = layoutWidth / layoutHeight;
+//--- Kalman
+MPU6500 mpu;  // Define mpu object from class MPU6500
+AccelData accelOut;
+GyroData gyroOut;
+calData cal = {0};  // Calibration data
 
-% Set desired width and height for the layout image in plot units based on aspect ratio
-desiredLayoutWidth = 42;  % Adjust this value as needed to fit the plot area
-desiredLayoutHeight = desiredLayoutWidth / layoutAspectRatio;  % Calculate height to maintain aspect ratio
+float pitch = 0.0, roll = 0.0, yaw = 0.0;
+const float alpha = 0.97;
+unsigned long prevTime = 0;
+unsigned long lastSerialActivity = 0; // For tracking serial freeze
+const unsigned long timeout = 5000;   // 5-second timeout
 
-% Display the layout image as the background with fixed XData and YData
-image('CData', layoutImage, 'XData', [-15, 15], ...   % Fit within axis limits for horizontal positioning
-      'YData', [desiredLayoutHeight - 3, -3]);  % Fit within axis limits for vertical positioning
-      % Reverse YData to correct mirroring without affecting aspect ratio
+float gyro_X_Euler = 1;
+float gyro_Y_Euler = 1;
 
-% Plot fixed anchor positions
-anchorCoordinates = [0, 0; 0.175, 11.22; 9.388, 11.26; 9.308, 0];  
-%for i = 1:size(anchorCoordinates, 1)
-    %plot(anchorCoordinates(i, 1), anchorCoordinates(i, 2), 'bo', 'MarkerSize', 8, 'DisplayName', ['Anchor ', num2str(i)]);
-%end
 
-% Initialize the plot for the car position and orientation
-tagPositionPlot = plot(NaN, NaN, 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'DisplayName', 'Estimated Tag Position');
 
-% Load the car icon image
-[carImage, ~, carAlpha] = imread('car.png');  % Load the car image with alpha
+class Kalman {
+public:
+  float Q_angle;   // Process noise variance for the accelerometer
+  float Q_bias;    // Process noise variance for the gyroscope bias
+  float R_measure; // Measurement noise variance
 
-% Desired width and height of the car in plot units
-desiredWidth = 2;  % Adjust as needed for car size
-desiredHeight = desiredWidth / (size(carImage, 2) / size(carImage, 1));  % Maintain aspect ratio
+  float angle;     // The angle calculated by the Kalman filter
+  float bias;      // The gyro bias calculated by the Kalman filter
+  float rate;      // Unbiased rate calculated by subtracting bias from gyro rate
 
-% Display the car image at an initial position (e.g., center of the plot)
-%carImagePlot = image('CData', carImage, 'XData', [0, desiredWidth], 'YData', [0, desiredHeight]);
-% Define starting position for the car
-startX = 0;
-startY = 8;
+  float P[2][2];   // Error covariance matrix
 
-% Display the car image at the specified initial position
-carImagePlot = image('CData', carImage, 'XData', [startX, startX + desiredWidth], ...
-                     'YData', [startY, startY + desiredHeight]);
-set(carImagePlot, 'AlphaData', carAlpha);  % Apply transparency if available
+  Kalman() {
+    Q_angle = 0.0025f; // 0.003f
+    Q_bias = 0.003f; // 0.003f
+    R_measure = 0.03f; // base value was 0.03f
 
-% Define the serial port and settings
-if ~isempty(instrfind)
-    fclose(instrfind);
-    delete(instrfind);
-end
+    angle = 0.0f;
+    bias = 0.0f;
+    rate = 0.0f;
 
-% Set up the serial port connection with higher baud rate and continuous read mode
-s = serial('COM5', 'BaudRate', 115200); % Adjust 'COM5' as needed
-fopen(s);
+    P[0][0] = 0.0f;
+    P[0][1] = 0.0f;
+    P[1][0] = 0.0f;
+    P[1][1] = 0.0f;
+  }
 
-% Infinite loop for real-time position updates
-while true
-    % Fetch or update the latest tag data
-    [tagCoordinates, anchorData, pitchRoll] = ExtractAnchorAndTagInfo(s);
-    tagPosition = tagCoordinates;
+  float getAngle(float newAngle, float newRate, float dt) {
+    // Predict
+    rate = newRate - bias; // new Angular velocity - bias
+    angle += dt * rate;    // add the new angle to the previous angle
 
-    % Update the car image position based on tag position (no rotation for now)
-    set(carImagePlot, 'XData', [tagPosition(1)-desiredWidth/2, tagPosition(1)+desiredWidth/2], ...
-                      'YData', [tagPosition(2)-desiredHeight/2, tagPosition(2)+desiredHeight/2]);
+    P[0][0] += dt * (dt * P[1][1] - P[0][1] - P[1][0] + Q_angle);
+    P[0][1] -= dt * P[1][1];
+    P[1][0] -= dt * P[1][1];
+    P[1][1] += Q_bias * dt;
 
-    % Update the position of the tag on the plot
-    set(tagPositionPlot, 'XData', tagPosition(1), 'YData', tagPosition(2));
+    // Update
+    float S = P[0][0] + R_measure;
+    float K[2];
+    K[0] = P[0][0] / S;
+    K[1] = P[1][0] / S;
 
-    % Shortened pause for faster updates
-    pause(0.01);  % Adjust as needed for smoother or faster updates
-end
+    float y = newAngle - angle;
+    angle += K[0] * y;
+    bias += K[1] * y;
+
+    float P00_temp = P[0][0];
+    float P01_temp = P[0][1];
+
+    P[0][0] -= K[0] * P00_temp;
+    P[0][1] -= K[0] * P01_temp;
+    P[1][0] -= K[1] * P00_temp;
+    P[1][1] -= K[1] * P01_temp;
+
+    return angle;
+  }
+};
+
+Kalman kalmanPitch;
+Kalman kalmanRoll;
+
+//--- Kalman
+
+
+
+// Data structure to hold anchor node information
+struct AnchorNode {
+  uint8_t role;
+  uint8_t id;
+  float distance;   // Distance in meters
+  float fpRssi;     // FP RSSI in dB
+  float rxRssi;     // RX RSSI in dB
+};
+
+struct Position {
+  float x;
+  float y;
+};
+
+// Data structure to hold the parsed values
+struct NLinkData {
+  uint8_t frameHeader;
+  uint8_t functionMark;
+  uint16_t frameLength;
+  uint8_t role;
+  uint8_t id;
+  uint32_t systemTime;
+  float eop_x, eop_y, eop_z;
+  float pos_x, pos_y, pos_z; // the estimated position
+  float vel_x, vel_y, vel_z;
+  float gyro_x, gyro_y, gyro_z;
+  float acc_x, acc_y, acc_z;
+  float angle_x, angle_y, angle_z;
+  float q0, q1, q2, q3;
+  uint32_t localTime;
+  float voltage;
+  uint8_t validNodeQuantity;
+  AnchorNode anchors[4]; // Array of anchor nodes (maximum of 4)
+};
+
+NLinkData parsedData;
+
+
+void computeKalmanPitchAndRoll(){
+  mpu.update();
+  mpu.getAccel(&accelOut);
+  mpu.getGyro(&gyroOut);
+
+  // Calculate time difference
+  unsigned long currentTime = millis();
+  float dt = (currentTime - prevTime) / 1000.0;  // Convert to seconds
+  prevTime = currentTime;
+
+  // Calculate pitch and roll from accelerometer data
+  float accelPitch = atan2(accelOut.accelY, sqrt(accelOut.accelX * accelOut.accelX + accelOut.accelZ * accelOut.accelZ)) * 180.0 / PI;
+  float accelRoll = atan2(-accelOut.accelX, sqrt(accelOut.accelY * accelOut.accelY + accelOut.accelZ * accelOut.accelZ)) * 180.0 / PI;
+
+  // Use the Kalman filter to estimate pitch and roll angles
+  pitch = kalmanPitch.getAngle(accelPitch, gyroOut.gyroX, dt);
+  roll = kalmanRoll.getAngle(accelRoll, gyroOut.gyroY, dt);
+  delay(1);  // Add some delay for stability
+}
+
+
+void setup() {
+  // cal.valid = false;
+  // Wire.begin();
+  // Wire.setClock(400000);
+  delay(2000);
+
+  // int err = mpu.init(cal, 0x68);
+  // if (err != 0) while (true);
+
+  // mpu.calibrateAccelGyro(&cal);
+  // mpu.init(cal, 0x68);
+
+  Serial.begin(115200);
+  while (!Serial);
+  Serial.println("Starting...");
+  Serial1.begin(115200);
+  lastSerialActivity = millis(); // Initialize last activity timestamp
+}
+
+void parsePacket(const uint8_t *buffer) {
+  int offset = 0;
+  
+  parsedData.frameHeader = buffer[offset++];
+  parsedData.functionMark = buffer[offset++];
+  parsedData.frameLength = buffer[offset] | (buffer[offset + 1] << 8);
+  offset += 2;
+
+  parsedData.role = buffer[offset++];
+  parsedData.id = buffer[offset++];
+
+  parsedData.systemTime = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16) | (buffer[offset + 3] << 24);
+  offset += 4;
+
+  parsedData.eop_x = buffer[offset++] / 100.0f;
+  parsedData.eop_y = buffer[offset++] / 100.0f;
+  parsedData.eop_z = buffer[offset++] / 100.0f;
+
+  parsedData.pos_x = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 1000.0f;
+  offset += 3;
+  parsedData.pos_y = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 1000.0f;
+  offset += 3;
+  parsedData.pos_z = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 1000.0f;
+  offset += 3;
+
+  parsedData.vel_x = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 10000.0f;
+  offset += 3;
+  parsedData.vel_y = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 10000.0f;
+  offset += 3;
+  parsedData.vel_z = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 10000.0f;
+  offset += 3;
+
+  offset += 9; // reserved
+
+  parsedData.gyro_x = *((float*)&buffer[offset]);
+  offset += 4;
+  parsedData.gyro_y = *((float*)&buffer[offset]);
+  offset += 4;
+  parsedData.gyro_z = *((float*)&buffer[offset]);
+  offset += 4;
+
+  parsedData.acc_x = *((float*)&buffer[offset]);
+  offset += 4;
+  parsedData.acc_y = *((float*)&buffer[offset]);
+  offset += 4;
+  parsedData.acc_z = *((float*)&buffer[offset]);
+  offset += 4;
+
+  offset += 12; //reserved
+
+  parsedData.angle_x = ((int16_t)(buffer[offset] | (buffer[offset + 1] << 8))) / 100.0f;
+  offset += 2;
+  parsedData.angle_y = ((int16_t)(buffer[offset] | (buffer[offset + 1] << 8))) / 100.0f;
+  offset += 2;
+  parsedData.angle_z = ((int16_t)(buffer[offset] | (buffer[offset + 1] << 8))) / 100.0f;
+  offset += 2;
+  
+  parsedData.q0 = *((float*)&buffer[offset]);
+  offset += 4;
+  parsedData.q1 = *((float*)&buffer[offset]);
+  offset += 4;
+  parsedData.q2 = *((float*)&buffer[offset]);
+  offset += 4;
+  parsedData.q3 = *((float*)&buffer[offset]);
+  offset += 4;
+
+  offset += 4; // reserved
+
+  parsedData.localTime = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16) | (buffer[offset + 3] << 24);
+  offset += 4;
+
+  offset += 10; // reserved
+
+  parsedData.voltage = ((int16_t)(buffer[offset] | (buffer[offset + 1] << 8))) / 1000.0f;
+  offset += 2;
+
+  parsedData.validNodeQuantity = buffer[offset++];
+
+  // Parse each anchor node based on validNodeQuantity
+  for (int i = 0; i < parsedData.validNodeQuantity && i < 4; i++) {
+    parsedData.anchors[i].role = buffer[offset++];
+    parsedData.anchors[i].id = buffer[offset++];
+
+    parsedData.anchors[i].distance = ((int32_t)(buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16))) / 1000.0f;
+    offset += 3;
+
+    parsedData.anchors[i].fpRssi = -buffer[offset++] / 2.0f;
+    parsedData.anchors[i].rxRssi = -buffer[offset++] / 2.0f;
+
+    offset += 6; // Skip reserved bytes for each anchor node
+  }
+}
+
+void printParsedData() {
+  Serial.println("\n--- Parsed Data ---");
+  Serial.print("Frame Header: "); Serial.println(parsedData.frameHeader, HEX);
+  Serial.print("Function Mark: "); Serial.println(parsedData.functionMark, HEX);
+  Serial.print("Frame Length: "); Serial.println(parsedData.frameLength);
+  Serial.print("Role: "); Serial.println(parsedData.role);
+  Serial.print("ID: "); Serial.println(parsedData.id);
+  Serial.print("System Time: "); Serial.println(parsedData.systemTime);
+
+  Serial.println("\n--- Position Error (EOP) ---");
+  Serial.print("EOP X: "); Serial.println(parsedData.eop_x);
+  Serial.print("EOP Y: "); Serial.println(parsedData.eop_y);
+  Serial.print("EOP Z: "); Serial.println(parsedData.eop_z);
+
+  Serial.println("\n--- Position ---");
+  Serial.print("Pos X: "); Serial.println(parsedData.pos_x);
+  Serial.print("Pos Y: "); Serial.println(parsedData.pos_y);
+  Serial.print("Pos Z: "); Serial.println(parsedData.pos_z);
+
+  Serial.print("Voltage: "); Serial.println(parsedData.voltage);
+  Serial.print("Valid Node Quantity: "); Serial.println(parsedData.validNodeQuantity);
+
+  // Print anchor node data
+  Serial.println("\n--- Anchor Nodes ---");
+  for (int i = 0; i < parsedData.validNodeQuantity && i < 4; i++) {
+    Serial.print("Anchor ");
+    Serial.print(i + 1);
+    Serial.println(":");
+
+    Serial.print("  Role: ");
+    Serial.println(parsedData.anchors[i].role);
+
+    Serial.print("  ID: ");
+    Serial.println(parsedData.anchors[i].id);
+
+    Serial.print("  Distance (m): ");
+    Serial.println(parsedData.anchors[i].distance);
+
+    Serial.print("  FP RSSI (dB): ");
+    Serial.println(parsedData.anchors[i].fpRssi);
+
+    Serial.print("  RX RSSI (dB): ");
+    Serial.println(parsedData.anchors[i].rxRssi);
+  }
+  Serial.println("--------------------");
+}
+
+void sendCoordinates() {
+  // Convert the tag's coordinates to int (scaled by 10 to keep one decimal place)
+  int tag_x = static_cast<int>(parsedData.pos_x);
+  int tag_y = static_cast<int>(parsedData.pos_y);
+
+  // Send the tag's coordinates
+  Serial.print(tag_x);
+  Serial.print(',');
+  Serial.print(tag_y);
+  Serial.print(';');
+ //A0
+  Serial.print(0);
+  Serial.print(',');
+  Serial.print(0);
+  Serial.print(';');
+  //A1
+  Serial.print(0);
+  Serial.print(',');
+  Serial.print(11);
+  Serial.print(';');
+  //A2
+    Serial.print(5);
+  Serial.print(',');
+  Serial.print(11);
+  Serial.print(';');
+  //A3
+    Serial.print(6);
+  Serial.print(',');
+  Serial.print(0);
+  Serial.print(';');
+
+  // End with a newline character
+  Serial.println();
+}
+
+
+Position weightedLeastSquares() {
+  float anchorRanges[4];
+  for (int i = 0; i < 4; i++) {
+    anchorRanges[i] = parsedData.anchors[i].distance;
+  }
+  // Fixed anchor positions
+  float anchorPositions[4][2] = {
+    {0, 0},         // Anchor 0 at (0, 0)
+    {0.485, 11.19}, // Anchor 1 at (0.485, 11.19)
+    {5.478, 11.254},// Anchor 2 at (5.478, 11.254)
+    {6.866, 0}      // Anchor 3 at (6.866, 0)
+  };
+
+  // Anchor distances (ranges)
+  float r0 = anchorRanges[0];
+  float r1 = anchorRanges[1];
+  float r2 = anchorRanges[2];
+  float r3 = anchorRanges[3];
+
+  // Fixed weights for each anchor (adjust these if variance-based weights are available)
+  float w1 = 0.001777;
+  float w2 = 0.001704728;
+  float w3 = 0.001193;
+
+  // Set up the system of equations
+  float A[3][2] = {
+    {2 * (anchorPositions[1][0] - anchorPositions[0][0]), 2 * (anchorPositions[1][1] - anchorPositions[0][1])},
+    {2 * (anchorPositions[2][0] - anchorPositions[0][0]), 2 * (anchorPositions[2][1] - anchorPositions[0][1])},
+    {2 * (anchorPositions[3][0] - anchorPositions[0][0]), 2 * (anchorPositions[3][1] - anchorPositions[0][1])}
+  };
+
+  float b[3] = {
+    r0 * r0 - r1 * r1 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[1][0] * anchorPositions[1][0]
+    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[1][1] * anchorPositions[1][1],
+    
+    r0 * r0 - r2 * r2 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[2][0] * anchorPositions[2][0]
+    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[2][1] * anchorPositions[2][1],
+    
+    r0 * r0 - r3 * r3 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[3][0] * anchorPositions[3][0]
+    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[3][1] * anchorPositions[3][1]
+  };
+
+  // Compute the weighted least squares solution
+  float W[3][3] = {{w1, 0, 0}, {0, w2, 0}, {0, 0, w3}};
+  
+  // A' * W
+  float ATW[2][3];
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      ATW[i][j] = A[0][i] * W[j][0] + A[1][i] * W[j][1] + A[2][i] * W[j][2];
+    }
+  }
+
+  // A' * W * A
+  float ATWA[2][2];
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 2; j++) {
+      ATWA[i][j] = ATW[i][0] * A[0][j] + ATW[i][1] * A[1][j] + ATW[i][2] * A[2][j];
+    }
+  }
+
+  // A' * W * b
+  float ATWb[2] = {ATW[0][0] * b[0] + ATW[0][1] * b[1] + ATW[0][2] * b[2],
+                   ATW[1][0] * b[0] + ATW[1][1] * b[1] + ATW[1][2] * b[2]};
+
+  // Invert 2x2 matrix ATWA to solve for x = (A' * W * A)^-1 * (A' * W * b)
+  float det = ATWA[0][0] * ATWA[1][1] - ATWA[0][1] * ATWA[1][0];
+  if (det == 0) {
+    // Handle the case where the determinant is zero (no unique solution)
+    return {0, 0}; // Return a default value (or handle error as needed)
+  }
+
+  float invATWA[2][2] = {{ ATWA[1][1] / det, -ATWA[0][1] / det},
+                         {-ATWA[1][0] / det,  ATWA[0][0] / det}};
+
+  // Final tag position (x, y)
+  Position tagPosition;
+  tagPosition.x = invATWA[0][0] * ATWb[0] + invATWA[0][1] * ATWb[1];
+  tagPosition.y = invATWA[1][0] * ATWb[0] + invATWA[1][1] * ATWb[1];
+
+  return tagPosition;
+}
+
+void sendExtendedData() {
+  // Convert the tag's coordinates to int (scaled by 10 to keep one decimal place)
+  // Position tagPosition = weightedLeastSquares();
+  // int tag_x = tagPosition.x;
+  // int tag_y = tagPosition.y;
+
+  // Send the tag's position
+  Serial.print(parsedData.pos_x);
+  Serial.print(',');
+  Serial.print(parsedData.pos_y);
+  Serial.print(';');
+
+  // Send each anchor's data: distance, fpRssi, and rxRssi
+  for (int i = 0; i < parsedData.validNodeQuantity && i < 4; i++) {
+    // Convert each anchor's data to int (scaled by 10 to keep one decimal place)
+    int anchor_fpRssi = static_cast<int>(parsedData.anchors[i].fpRssi);
+    int anchor_rxRssi = static_cast<int>(parsedData.anchors[i].rxRssi);
+    Serial.print(parsedData.anchors[i].distance);
+    Serial.print(',');
+    Serial.print(parsedData.anchors[i].fpRssi);
+    Serial.print(',');
+    Serial.print(parsedData.anchors[i].rxRssi);
+
+    // Add a semicolon after each anchor data except the last one
+    if (i < parsedData.validNodeQuantity - 1) {
+      Serial.print(';');
+    }
+  }
+  Serial.print(';');
+  Serial.print(pitch);
+  Serial.print(',');
+  Serial.print(roll);
+  Serial.print(';');
+
+  // End with a newline character
+  Serial.println();
+}
+
+void resetSerialIfNeeded() {
+  if (millis() - lastSerialActivity > timeout) {
+    Serial.end();
+    Serial1.end();
+    delay(100);  // Optional delay before reinitializing
+    Serial.begin(115200);
+    Serial1.begin(115200);
+    lastSerialActivity = millis();
+    Serial.println("Serial reinitialized after timeout.");
+  }
+}
+
+void loop() {
+  static uint8_t buffer[BUFFER_SIZE];
+  static int bufferIndex = 0;
+  static bool packetStarted = false;
+  static uint16_t frameLength = 0;
+
+
+  resetSerialIfNeeded(); // Call function to check for freezes
+
+  while (Serial1.available()) {
+    lastSerialActivity = millis(); // Update last activity timestamp
+    uint8_t incomingByte = Serial1.read();
+
+    if (!packetStarted) {
+      if (incomingByte == START_BYTE) {
+        packetStarted = true;
+        bufferIndex = 0;
+        frameLength = 0;
+        buffer[bufferIndex++] = incomingByte;
+      }
+    } else {
+      buffer[bufferIndex++] = incomingByte;
+
+      if (bufferIndex == 2 && incomingByte != FUNCTION_MARK_BYTE) {
+        packetStarted = false;
+        bufferIndex = 0;
+      }
+
+      if (bufferIndex == 4) {
+        frameLength = buffer[2] | (buffer[3] << 8);
+        if (frameLength > BUFFER_SIZE) {
+          Serial.println("Invalid frame length");
+          packetStarted = false;
+          bufferIndex = 0;
+        }
+      }
+
+      if (frameLength > 0 && bufferIndex >= frameLength) {
+        uint8_t calculatedChecksum = 0;
+        for (int i = 0; i < frameLength - 1; i++) {
+          calculatedChecksum += buffer[i];
+        }
+        if (calculatedChecksum == buffer[frameLength - 1]) {
+          parsePacket(buffer);
+          // printParsedData();
+          if(parsedData.validNodeQuantity >= 4){
+              sendExtendedData();
+              // computeKalmanPitchAndRoll();
+          }
+        } else {
+          Serial.println("Checksum failed.");
+        }
+        packetStarted = false;
+        bufferIndex = 0;
+      }
+    }
+  }
+}
