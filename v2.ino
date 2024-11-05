@@ -2,93 +2,19 @@
 #define FUNCTION_MARK_BYTE 0x04
 #define BUFFER_SIZE 256
 
-#include "FastIMU.h"
+#include "MPU9250.h"
 #include <Wire.h>
 #include <Servo.h>
 
 
 
-//--- Kalman
-MPU6500 mpu;  // Define mpu object from class MPU6500
-AccelData accelOut;
-GyroData gyroOut;
-calData cal = {0};  // Calibration data
 
-float pitch = 0.0, roll = 0.0, yaw = 0.0;
-const float alpha = 0.97;
-unsigned long prevTime = 0;
 unsigned long lastSerialActivity = 0; // For tracking serial freeze
 const unsigned long timeout = 5000;   // 5-second timeout
+static float robot_yaw = 0;
+// uint32_t prev_ms;
 
-float gyro_X_Euler = 1;
-float gyro_Y_Euler = 1;
-
-
-
-class Kalman {
-public:
-  float Q_angle;   // Process noise variance for the accelerometer
-  float Q_bias;    // Process noise variance for the gyroscope bias
-  float R_measure; // Measurement noise variance
-
-  float angle;     // The angle calculated by the Kalman filter
-  float bias;      // The gyro bias calculated by the Kalman filter
-  float rate;      // Unbiased rate calculated by subtracting bias from gyro rate
-
-  float P[2][2];   // Error covariance matrix
-
-  Kalman() {
-    Q_angle = 0.0025f; // 0.003f
-    Q_bias = 0.003f; // 0.003f
-    R_measure = 0.03f; // base value was 0.03f
-
-    angle = 0.0f;
-    bias = 0.0f;
-    rate = 0.0f;
-
-    P[0][0] = 0.0f;
-    P[0][1] = 0.0f;
-    P[1][0] = 0.0f;
-    P[1][1] = 0.0f;
-  }
-
-  float getAngle(float newAngle, float newRate, float dt) {
-    // Predict
-    rate = newRate - bias; // new Angular velocity - bias
-    angle += dt * rate;    // add the new angle to the previous angle
-
-    P[0][0] += dt * (dt * P[1][1] - P[0][1] - P[1][0] + Q_angle);
-    P[0][1] -= dt * P[1][1];
-    P[1][0] -= dt * P[1][1];
-    P[1][1] += Q_bias * dt;
-
-    // Update
-    float S = P[0][0] + R_measure;
-    float K[2];
-    K[0] = P[0][0] / S;
-    K[1] = P[1][0] / S;
-
-    float y = newAngle - angle;
-    angle += K[0] * y;
-    bias += K[1] * y;
-
-    float P00_temp = P[0][0];
-    float P01_temp = P[0][1];
-
-    P[0][0] -= K[0] * P00_temp;
-    P[0][1] -= K[0] * P01_temp;
-    P[1][0] -= K[1] * P00_temp;
-    P[1][1] -= K[1] * P01_temp;
-
-    return angle;
-  }
-};
-
-Kalman kalmanPitch;
-Kalman kalmanRoll;
-
-//--- Kalman
-
+MPU9250 mpu;
 
 
 // Data structure to hold anchor node information
@@ -129,45 +55,41 @@ struct NLinkData {
 NLinkData parsedData;
 
 
-void computeKalmanPitchAndRoll(){
-  mpu.update();
-  mpu.getAccel(&accelOut);
-  mpu.getGyro(&gyroOut);
-
-  // Calculate time difference
-  unsigned long currentTime = millis();
-  float dt = (currentTime - prevTime) / 1000.0;  // Convert to seconds
-  prevTime = currentTime;
-
-  // Calculate pitch and roll from accelerometer data
-  float accelPitch = atan2(accelOut.accelY, sqrt(accelOut.accelX * accelOut.accelX + accelOut.accelZ * accelOut.accelZ)) * 180.0 / PI;
-  float accelRoll = atan2(-accelOut.accelX, sqrt(accelOut.accelY * accelOut.accelY + accelOut.accelZ * accelOut.accelZ)) * 180.0 / PI;
-
-  // Use the Kalman filter to estimate pitch and roll angles
-  pitch = kalmanPitch.getAngle(accelPitch, gyroOut.gyroX, dt);
-  roll = kalmanRoll.getAngle(accelRoll, gyroOut.gyroY, dt);
-  delay(1);  // Add some delay for stability
-}
-
-
 void setup() {
-  // cal.valid = false;
-  // Wire.begin();
-  // Wire.setClock(400000);
-  delay(2000);
+    Wire.begin();
+    Wire.setClock(400000);  // Set the I2C clock to 400 kHz
+    delay(2000);
+    
+    if (!mpu.setup(0x68)) {  // change to your own address
+        while (1) {
+            Serial.println("MPU connection failed. Please check your connection with `connection_check` example.");
+            delay(5000);
+        }
+    }
 
-  // int err = mpu.init(cal, 0x68);
-  // if (err != 0) while (true);
+    // Calibration code
 
-  // mpu.calibrateAccelGyro(&cal);
-  // mpu.init(cal, 0x68);
+    mpu.verbose(true);
+    delay(5000);
+    mpu.calibrateAccelGyro();
 
-  Serial.begin(115200);
-  while (!Serial);
-  Serial.println("Starting...");
-  Serial1.begin(115200);
-  lastSerialActivity = millis(); // Initialize last activity timestamp
+
+    delay(5000);
+    mpu.calibrateMag();
+
+    mpu.verbose(false);
+
+    while (!Serial);
+    Serial.end();
+    delay(1000);
+    Serial.begin(9600);
+    Serial1.begin(115200);
+    lastSerialActivity = millis(); // Initialize last activity timestamp
+    // prev_ms = millis();
+    // prev_ms = lastSerialActivity;
 }
+
+
 
 void parsePacket(const uint8_t *buffer) {
   int offset = 0;
@@ -262,171 +184,9 @@ void parsePacket(const uint8_t *buffer) {
   }
 }
 
-void printParsedData() {
-  Serial.println("\n--- Parsed Data ---");
-  Serial.print("Frame Header: "); Serial.println(parsedData.frameHeader, HEX);
-  Serial.print("Function Mark: "); Serial.println(parsedData.functionMark, HEX);
-  Serial.print("Frame Length: "); Serial.println(parsedData.frameLength);
-  Serial.print("Role: "); Serial.println(parsedData.role);
-  Serial.print("ID: "); Serial.println(parsedData.id);
-  Serial.print("System Time: "); Serial.println(parsedData.systemTime);
-
-  Serial.println("\n--- Position Error (EOP) ---");
-  Serial.print("EOP X: "); Serial.println(parsedData.eop_x);
-  Serial.print("EOP Y: "); Serial.println(parsedData.eop_y);
-  Serial.print("EOP Z: "); Serial.println(parsedData.eop_z);
-
-  Serial.println("\n--- Position ---");
-  Serial.print("Pos X: "); Serial.println(parsedData.pos_x);
-  Serial.print("Pos Y: "); Serial.println(parsedData.pos_y);
-  Serial.print("Pos Z: "); Serial.println(parsedData.pos_z);
-
-  Serial.print("Voltage: "); Serial.println(parsedData.voltage);
-  Serial.print("Valid Node Quantity: "); Serial.println(parsedData.validNodeQuantity);
-
-  // Print anchor node data
-  Serial.println("\n--- Anchor Nodes ---");
-  for (int i = 0; i < parsedData.validNodeQuantity && i < 4; i++) {
-    Serial.print("Anchor ");
-    Serial.print(i + 1);
-    Serial.println(":");
-
-    Serial.print("  Role: ");
-    Serial.println(parsedData.anchors[i].role);
-
-    Serial.print("  ID: ");
-    Serial.println(parsedData.anchors[i].id);
-
-    Serial.print("  Distance (m): ");
-    Serial.println(parsedData.anchors[i].distance);
-
-    Serial.print("  FP RSSI (dB): ");
-    Serial.println(parsedData.anchors[i].fpRssi);
-
-    Serial.print("  RX RSSI (dB): ");
-    Serial.println(parsedData.anchors[i].rxRssi);
-  }
-  Serial.println("--------------------");
-}
-
-void sendCoordinates() {
-  // Convert the tag's coordinates to int (scaled by 10 to keep one decimal place)
-  int tag_x = static_cast<int>(parsedData.pos_x);
-  int tag_y = static_cast<int>(parsedData.pos_y);
-
-  // Send the tag's coordinates
-  Serial.print(tag_x);
-  Serial.print(',');
-  Serial.print(tag_y);
-  Serial.print(';');
- //A0
-  Serial.print(0);
-  Serial.print(',');
-  Serial.print(0);
-  Serial.print(';');
-  //A1
-  Serial.print(0);
-  Serial.print(',');
-  Serial.print(11);
-  Serial.print(';');
-  //A2
-    Serial.print(5);
-  Serial.print(',');
-  Serial.print(11);
-  Serial.print(';');
-  //A3
-    Serial.print(6);
-  Serial.print(',');
-  Serial.print(0);
-  Serial.print(';');
-
-  // End with a newline character
-  Serial.println();
-}
 
 
-Position weightedLeastSquares() {
-  float anchorRanges[4];
-  for (int i = 0; i < 4; i++) {
-    anchorRanges[i] = parsedData.anchors[i].distance;
-  }
-  // Fixed anchor positions
-  float anchorPositions[4][2] = {
-    {0, 0},         // Anchor 0 at (0, 0)
-    {0.485, 11.19}, // Anchor 1 at (0.485, 11.19)
-    {5.478, 11.254},// Anchor 2 at (5.478, 11.254)
-    {6.866, 0}      // Anchor 3 at (6.866, 0)
-  };
 
-  // Anchor distances (ranges)
-  float r0 = anchorRanges[0];
-  float r1 = anchorRanges[1];
-  float r2 = anchorRanges[2];
-  float r3 = anchorRanges[3];
-
-  // Fixed weights for each anchor (adjust these if variance-based weights are available)
-  float w1 = 0.001777;
-  float w2 = 0.001704728;
-  float w3 = 0.001193;
-
-  // Set up the system of equations
-  float A[3][2] = {
-    {2 * (anchorPositions[1][0] - anchorPositions[0][0]), 2 * (anchorPositions[1][1] - anchorPositions[0][1])},
-    {2 * (anchorPositions[2][0] - anchorPositions[0][0]), 2 * (anchorPositions[2][1] - anchorPositions[0][1])},
-    {2 * (anchorPositions[3][0] - anchorPositions[0][0]), 2 * (anchorPositions[3][1] - anchorPositions[0][1])}
-  };
-
-  float b[3] = {
-    r0 * r0 - r1 * r1 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[1][0] * anchorPositions[1][0]
-    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[1][1] * anchorPositions[1][1],
-    
-    r0 * r0 - r2 * r2 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[2][0] * anchorPositions[2][0]
-    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[2][1] * anchorPositions[2][1],
-    
-    r0 * r0 - r3 * r3 - anchorPositions[0][0] * anchorPositions[0][0] + anchorPositions[3][0] * anchorPositions[3][0]
-    - anchorPositions[0][1] * anchorPositions[0][1] + anchorPositions[3][1] * anchorPositions[3][1]
-  };
-
-  // Compute the weighted least squares solution
-  float W[3][3] = {{w1, 0, 0}, {0, w2, 0}, {0, 0, w3}};
-  
-  // A' * W
-  float ATW[2][3];
-  for (int i = 0; i < 2; i++) {
-    for (int j = 0; j < 3; j++) {
-      ATW[i][j] = A[0][i] * W[j][0] + A[1][i] * W[j][1] + A[2][i] * W[j][2];
-    }
-  }
-
-  // A' * W * A
-  float ATWA[2][2];
-  for (int i = 0; i < 2; i++) {
-    for (int j = 0; j < 2; j++) {
-      ATWA[i][j] = ATW[i][0] * A[0][j] + ATW[i][1] * A[1][j] + ATW[i][2] * A[2][j];
-    }
-  }
-
-  // A' * W * b
-  float ATWb[2] = {ATW[0][0] * b[0] + ATW[0][1] * b[1] + ATW[0][2] * b[2],
-                   ATW[1][0] * b[0] + ATW[1][1] * b[1] + ATW[1][2] * b[2]};
-
-  // Invert 2x2 matrix ATWA to solve for x = (A' * W * A)^-1 * (A' * W * b)
-  float det = ATWA[0][0] * ATWA[1][1] - ATWA[0][1] * ATWA[1][0];
-  if (det == 0) {
-    // Handle the case where the determinant is zero (no unique solution)
-    return {0, 0}; // Return a default value (or handle error as needed)
-  }
-
-  float invATWA[2][2] = {{ ATWA[1][1] / det, -ATWA[0][1] / det},
-                         {-ATWA[1][0] / det,  ATWA[0][0] / det}};
-
-  // Final tag position (x, y)
-  Position tagPosition;
-  tagPosition.x = invATWA[0][0] * ATWb[0] + invATWA[0][1] * ATWb[1];
-  tagPosition.y = invATWA[1][0] * ATWb[0] + invATWA[1][1] * ATWb[1];
-
-  return tagPosition;
-}
 
 void sendExtendedData() {
   // Convert the tag's coordinates to int (scaled by 10 to keep one decimal place)
@@ -457,26 +217,12 @@ void sendExtendedData() {
     }
   }
   Serial.print(';');
-  Serial.print(pitch);
-  Serial.print(',');
-  Serial.print(roll);
-  Serial.print(';');
-
+  Serial.print(robot_yaw);
   // End with a newline character
   Serial.println();
 }
 
-void resetSerialIfNeeded() {
-  if (millis() - lastSerialActivity > timeout) {
-    Serial.end();
-    Serial1.end();
-    delay(100);  // Optional delay before reinitializing
-    Serial.begin(115200);
-    Serial1.begin(115200);
-    lastSerialActivity = millis();
-    Serial.println("Serial reinitialized after timeout.");
-  }
-}
+
 
 void loop() {
   static uint8_t buffer[BUFFER_SIZE];
@@ -485,10 +231,10 @@ void loop() {
   static uint16_t frameLength = 0;
 
 
-  resetSerialIfNeeded(); // Call function to check for freezes
+  // resetSerialIfNeeded(); // Call function to check for freezes
 
   while (Serial1.available()) {
-    lastSerialActivity = millis(); // Update last activity timestamp
+    // lastSerialActivity = millis(); // Update last activity timestamp
     uint8_t incomingByte = Serial1.read();
 
     if (!packetStarted) {
@@ -525,7 +271,6 @@ void loop() {
           // printParsedData();
           if(parsedData.validNodeQuantity >= 4){
               sendExtendedData();
-              // computeKalmanPitchAndRoll();
           }
         } else {
           Serial.println("Checksum failed.");
@@ -535,4 +280,13 @@ void loop() {
       }
     }
   }
+      if (mpu.update()) {
+          static uint32_t prev_ms = millis();
+          if (millis() > prev_ms + 500) {
+            robot_yaw = mpu.getYaw();  // Update yaw if needed
+            prev_ms = millis();
+          }
+         
+      }
+
 }
