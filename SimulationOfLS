@@ -1,49 +1,59 @@
 % Main script to read data, estimate tag position using WLS, and compare with actual position
-
 % Load data file
-filename = 'crazymus.csv';  % replace with the actual CSV file path
+filename = 'your_file.csv';  % Replace with the actual CSV file path
+outputFilename = 'comparison_output.csv';  % Output CSV file to save results
 
 % Read data from CSV with a delay, displaying results and comparing positions
 data = readtable(filename, 'VariableNamingRule', 'preserve');
 numAnchors = 4;
 
+% Initialize an array to store the comparison results
+results = [];
+
 for i = 1:height(data)
-    % Initialize anchor ranges array
+    % Initialize anchor ranges and rssiRatios arrays
     anchorRanges = zeros(numAnchors, 1);
+    rssiRatios = zeros(numAnchors, 1);
     for j = 1:numAnchors
         % Construct the correct column names for each anchor
         distanceCol = ['dis(m)' num2str(j)];
+        fpRssiCol = ['fpRssi(dB)' num2str(j)];
+        rxRssiCol = ['rxRssi(dB)' num2str(j)];
+
+        % Calculate the range and rssi ratio for each anchor
         anchorRanges(j) = data.(distanceCol)(i);
+        rssiRatios(j) = data.(fpRssiCol)(i) / data.(rxRssiCol)(i);
     end
 
     % Get the estimated position using Weighted Least Squares
-    estimatedPosition = weightedLeastSquares(anchorRanges);
+    estimatedPosition = weightedLeastSquares(anchorRanges, rssiRatios);
 
     % Actual tag position from data
     actualPosition = [data.pos_x(i), data.pos_y(i)];
 
-    % Display the anchorList and tag details for the current row
-    anchorList = struct();
-    for j = 1:numAnchors
-        fpRssiCol = ['fpRssi(dB)' num2str(j)];
-        rxRssiCol = ['rxRssi(dB)' num2str(j)];
+    % Calculate the differences
+    diffX = abs(estimatedPosition(1) - actualPosition(1));
+    diffY = abs(estimatedPosition(2) - actualPosition(2));
 
-        anchorList(j).distance = anchorRanges(j);
-        anchorList(j).fpRssi = data.(fpRssiCol)(i);
-        anchorList(j).rxRssi = data.(rxRssiCol)(i);
-    end
-    
-    % Display anchorList and tag data
-    %displayAnchorAndTag(anchorList, struct('position', struct('pos_x', actualPosition(1), 'pos_y', actualPosition(2))), i);
+    % Append results for this row to the results array
+    results = [results; estimatedPosition, actualPosition, diffX, diffY];
 
-    % Display the comparison between estimated and actual positions
+    % Display the comparison for the current row
     disp('--- Position Comparison ---');
     disp(['Estimated Position (WLS): X = ' num2str(estimatedPosition(1)) ', Y = ' num2str(estimatedPosition(2))]);
     disp(['Actual Position: X = ' num2str(actualPosition(1)) ', Y = ' num2str(actualPosition(2))]);
-    disp(['Difference: ΔX = ' num2str(abs(estimatedPosition(1) - actualPosition(1))) ...
-          ', ΔY = ' num2str(abs(estimatedPosition(2) - actualPosition(2)))]);
+    disp(['Difference: ΔX = ' num2str(diffX) ', ΔY = ' num2str(diffY)]);
     disp(' ');
 
-    % 100 ms delay
-    pause(0.1);
+    % 500 ms delay
+    pause(0.5);
 end
+
+% Define column headers for the output CSV
+headers = {'Estimated_X', 'Estimated_Y', 'Actual_X', 'Actual_Y', 'Diff_X', 'Diff_Y'};
+
+% Write the headers and results to the output CSV file
+comparisonTable = array2table(results, 'VariableNames', headers);
+writetable(comparisonTable, outputFilename);
+
+disp(['Comparison results saved to ' outputFilename]);
