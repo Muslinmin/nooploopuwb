@@ -1,7 +1,8 @@
-function tagPosition = weightedLeastSquares(anchorRanges)
+function tagPosition = weightedLeastSquares(anchorRanges, rssiRatios)
     % Function to estimate the tag position using Weighted Least Squares (WLS)
     % Input:
     %   anchorRanges - Nx1 vector of distances (ranges) from each anchor to the tag
+    %   rssiRatios - Nx1 vector of fp_rssi / rx_rssi ratios for each anchor
     % Output:
     %   tagPosition - estimated [x, y] position of the tag
 
@@ -13,13 +14,8 @@ function tagPosition = weightedLeastSquares(anchorRanges)
     r2 = anchorRanges(3);
     r3 = anchorRanges(4);
 
-    % Fixed weights for each anchor (replace these with actual variance-based weights if available)
-    w1 = 1;  % Weight for Anchor 1
-    w2 = 1;  % Weight for Anchor 2
-    w3 = 1;  % Weight for Anchor 3
-
-    % Construct the diagonal weight matrix W
-    W = diag([w1, w2, w3]);
+    % Use rssiRatios as weights for each anchor
+    W = diag(rssiRatios);
 
     % Reference anchor
     A0 = anchorPositions(1, :);
@@ -42,8 +38,7 @@ function tagPosition = weightedLeastSquares(anchorRanges)
 
     % Solve for the tag position using Weighted Least Squares
     A_T = transpose(A);
-    W_T = transpose(W);
-    alpha_inv = inv(A_T*W_T*W*A);
-    beta = (A_T*W_T*W*b);
+    alpha_inv = inv(A_T * W * A);
+    beta = A_T * W * b;
     tagPosition = alpha_inv * beta;
 end
