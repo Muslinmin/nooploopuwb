@@ -5,13 +5,7 @@ function tagPosition = weightedLeastSquares(anchorRanges)
     % Output:
     %   tagPosition - estimated [x, y] position of the tag
 
-    % Fixed anchor positions
-    anchorPositions = [
-        0, 0;           % A0
-       -0.055, 2.062;   % A1
-        2.006, 2.421;   % A2
-        2.086, 0        % A3
-    ];
+    anchorPositions = [0, 0; 0.485, 11.19; 5.478, 11.254; 6.866, 0]; 
 
     % Distances for each anchor
     r0 = anchorRanges(1);
@@ -47,5 +41,9 @@ function tagPosition = weightedLeastSquares(anchorRanges)
     ];
 
     % Solve for the tag position using Weighted Least Squares
-    tagPosition = (A' * W * A) \ (A' * W * b);
+    A_T = transpose(A);
+    W_T = transpose(W);
+    alpha_inv = inv(A_T*W_T*W*A);
+    beta = (A_T*W_T*W*b);
+    tagPosition = alpha_inv * beta;
 end
