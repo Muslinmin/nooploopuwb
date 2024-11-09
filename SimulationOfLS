@@ -1,0 +1,49 @@
+% Main script to read data, estimate tag position using WLS, and compare with actual position
+
+% Load data file
+filename = 'crazymus.csv';  % replace with the actual CSV file path
+
+% Read data from CSV with a delay, displaying results and comparing positions
+data = readtable(filename, 'VariableNamingRule', 'preserve');
+numAnchors = 4;
+
+for i = 1:height(data)
+    % Initialize anchor ranges array
+    anchorRanges = zeros(numAnchors, 1);
+    for j = 1:numAnchors
+        % Construct the correct column names for each anchor
+        distanceCol = ['dis(m)' num2str(j)];
+        anchorRanges(j) = data.(distanceCol)(i);
+    end
+
+    % Get the estimated position using Weighted Least Squares
+    estimatedPosition = weightedLeastSquares(anchorRanges);
+
+    % Actual tag position from data
+    actualPosition = [data.pos_x(i), data.pos_y(i)];
+
+    % Display the anchorList and tag details for the current row
+    anchorList = struct();
+    for j = 1:numAnchors
+        fpRssiCol = ['fpRssi(dB)' num2str(j)];
+        rxRssiCol = ['rxRssi(dB)' num2str(j)];
+
+        anchorList(j).distance = anchorRanges(j);
+        anchorList(j).fpRssi = data.(fpRssiCol)(i);
+        anchorList(j).rxRssi = data.(rxRssiCol)(i);
+    end
+    
+    % Display anchorList and tag data
+    %displayAnchorAndTag(anchorList, struct('position', struct('pos_x', actualPosition(1), 'pos_y', actualPosition(2))), i);
+
+    % Display the comparison between estimated and actual positions
+    disp('--- Position Comparison ---');
+    disp(['Estimated Position (WLS): X = ' num2str(estimatedPosition(1)) ', Y = ' num2str(estimatedPosition(2))]);
+    disp(['Actual Position: X = ' num2str(actualPosition(1)) ', Y = ' num2str(actualPosition(2))]);
+    disp(['Difference: ΔX = ' num2str(abs(estimatedPosition(1) - actualPosition(1))) ...
+          ', ΔY = ' num2str(abs(estimatedPosition(2) - actualPosition(2)))]);
+    disp(' ');
+
+    % 100 ms delay
+    pause(0.1);
+end
