@@ -12,9 +12,9 @@
 unsigned long lastSerialActivity = 0; // For tracking serial freeze
 const unsigned long timeout = 5000;   // 5-second timeout
 static float robot_yaw = 0;
-// uint32_t prev_ms;
+static uint32_t prev_ms;
 
-// MPU9250 mpu;
+MPU9250 mpu;
 
 
 // Data structure to hold anchor node information
@@ -273,7 +273,6 @@ void loop() {
     }
   }
       if (mpu.update()) {
-          static uint32_t prev_ms = millis();
           if (millis() > prev_ms + 500) {
             robot_yaw = mpu.getEulerZ();  // Update yaw if needed
             prev_ms = millis();
