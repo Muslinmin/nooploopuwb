@@ -1,0 +1,678 @@
+\documentclass[a4paper,12pt]{report}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[left=25mm,right=25mm,top=5mm,bottom=25mm,paper=a4paper]{geometry}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usepackage{lscape}
+\usepackage{pdflscape}
+\usepackage{subcaption}
+\usepackage{pgfplots}
+\usepackage{caption}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{framed}
+\usepackage{makecell} % For wrapping text in table headers
+
+
+\usetikzlibrary{arrows, arrows.meta, shapes, positioning, shapes.geometric}
+\pgfplotsset{compat=1.18}
+
+\begin{document}
+\title{
+  \includegraphics[width=1\textwidth]{RobotTopView.jpg} \\ % Adjust the width and image file name
+  Mini Project 3: NoopLoop Linktrack SS Sensor Characterization and its Application in Robot Localization and Path Planning
+}
+\author{
+  Stafford Ho Sheng Xian \\
+  Yugendren S/O Sooriya Moorthi \\
+  Reuben Low Yu Xiang \\
+  Mohammed Muslimin Bin Mohd Saleh \\
+  Caleb Lee Jia Le \\
+  \\{[RSE4501]}
+}
+\date{[10/11/24]}
+\maketitle
+\chapter{Introduction}
+\section{Project Objectives}
+\begin{itemize}
+    
+    \item Develop a deep understanding of UWB operational principles to generate Robot localization data within a demarcated area of 4 anchors.
+    \item Using A* algorithm, generate path planning from a current pose to a goal pose.The localization data from NoopLoop provides the current pose/start pose and the user provides a desired goal pose in the code.
+    
+\end{itemize}
+
+\section{Background}
+   The Nooploop Ultra-Wideband (UWB) system is a localization technology that uses precise timing of radio wave signals to determine the position of objects in 3D space. By deploying multiple anchors and a mobile tag, the system measures distances between the tag and each anchor using methods like Time of Flight (ToF) or Time Difference of Arrival (TDoA). This allows the Nooploop UWB to achieve highly accurate, centimeter-level positioning, even in indoor environments where traditional GPS struggles. The system can measure an object’s exact location by calculating the propagation time of UWB pulses, making it ideal for applications requiring precise tracking of position within constrained spaces.
+    
+\chapter{Project Components}
+\section{Hardware Components}
+
+\subsection{Microcontroller}
+\begin{itemize}
+    \item \textbf{Arduino Leonardo Pro Micro (Quantity: 1)}: A compact microcontroller selected for its portability and sufficient I/O pins, making it ideal for interfacing with the IMU sensor and Nooploop Linktrack SS Ultra-Wideband (UWB) tag.
+\end{itemize}
+
+\subsection{Sensors}
+\begin{itemize}
+    \item \textbf{MPU-9250 (Quantity: 1)}: This 9-axis IMU integrates a 3-axis gyroscope, a 3-axis accelerometer, and a 3-axis magnetometer, allowing it to capture angular velocity, linear acceleration, and magnetic field strength along the X, Y, and Z axes. 
+\end{itemize}
+\begin{itemize}
+    \item \textbf{Nooploop LinkTrack SS (Quantity: 1)}: The LinkTrack SS tag is an Ultra-Wideband (UWB) device designed for indoor positioning, where traditional GPS often fails due to signal attenuation and multipath effects. It determines its location by communicating with multiple UWB anchors using precise time-of-flight (ToF) or time difference of arrival (TDOA) measurements, supporting high update rates and low latency for real-time tracking in dynamic environments.
+\end{itemize}
+
+\subsection{Robotic Platform}
+\begin{itemize}
+    \item \textbf{Remote-Controlled Car (Quantity: 1)}: The remote-controlled car houses the MPU-9250 and NoopLoop LinkTrack SS components. Although the car is manually controlled, it serves to simulate the behavior of an autonomous mobile robot within an indoor warehouse environment. The car’s movement is teleoperated and receives the positional data from the UWB system and orientation data from the IMU, which demonstrates how an autonomous system would use these inputs. As the car moves through the environment, it communicates with the UWB anchors to determine its current location, while the IMU sensor provides orientation and movement data. Together, these inputs are processed to guide the car along the optimal path in the warehouse, avoiding obstacles as defined in the binary occupancy grid map.
+\end{itemize}
+
+\section{Software Components}
+
+\subsection{Programming Language and Tools}
+The project utilizes \textbf{Arduino} for IMU measurements and servo control routines, while \textbf{MATLAB} provides a visual representation of the aircraft's orientation in a simulation.
+
+\subsection{Libraries Used}
+
+\begin{itemize}
+    \item \textbf{Wire.h}: A library that facilitates I2C communication between the Arduino and the MPU-9250 IMU, allowing for the retrieval of sensor data such as acceleration and angular velocity.
+    \item \textbf{MPU9250.h}: This library processes MPU 9250 sensor data to provide accurate yaw, pitch, and roll by calibrating and aligning accelerometer, gyroscope, and magnetometer readings to a standard orientation. Using the \textbf{Madgwick filter}, it combines and refines these inputs, filtering out noise and drift for stable orientation estimates accessible trhough functions in this case - yaw readings for mobile robot orientation.
+    
+\end{itemize}
+
+
+\chapter{System Design and Architecture}
+\section{System Block Diagram}
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[node distance=0.8cm, auto, scale=0.8, transform shape]
+    
+        % Nodes
+       
+        \node (arduino) [draw, rectangle, minimum width=2.5cm, minimum height=5cm] {Arduino Leonardo};
+         \node (matlab) [draw, dashed, rectangle, right=of arduino, minimum width=2.5cm] {MATLAB};
+        
+        
+        \node (power) [draw, rectangle, left=of arduino, yshift=2cm, minimum width=2.5cm] {Power Supply 5V};
+        \node (imu) [draw, rectangle, left=of arduino, yshift=-2cm, minimum width=2.5cm] {IMU MPU-9250};
+        \node (NoopLoopTag) [draw, rectangle, left=of arduino, yshift=0.7cm, minimum width=2.5cm] {NoopLoop LinkSys SS(Tag)};
+        \node (NoopLoopAnchor) [draw, rectangle, left=of arduino, yshift=-0.75cm, minimum width=2.5cm] {NoopLoop LinkSys S(Anchor)};
+
+        \node (Map) [draw, rectangle, right=of matlab, yshift=1.5cm, minimum width=2.5cm] {Map Occupany Grid}; 
+        \node (local) [draw, rectangle, right=of matlab, yshift=0cm, minimum width=2.5cm, align=center] {Set localization data\\as current pose};
+        \node (end) [draw, rectangle, right=of Map, yshift=0cm, minimum width=2.5cm] {Set end pose};
+        \node (plan) [draw, rectangle, right=of local, yshift=0cm, minimum width=2.5cm, align=center] {Plot red path from \\current to end pose};
+        
+        
+        
+       
+
+        % Connections
+        \draw[->] (matlab) -- (arduino);
+        \draw[->] (power.east) -- ++(0.3,0) |- (arduino.west |- power.east);
+        \draw[<->] (NoopLoopTag.east) -- ++(0.3,0) |- (arduino.west |- NoopLoopTag.east);
+        \draw[<->] (imu.east) -- ++(0.3,0) |- (arduino.west |- imu.east);
+        \draw[<->] (NoopLoopAnchor) --([shift={(-0.2,0)}]NoopLoopTag.south);
+        \draw[<->]  (matlab) -- (arduino);
+
+        \draw[->] (matlab.east) -- (Map.west);
+        \draw[->] (matlab.east) -- (local.west);
+        \draw[->] (Map.east) -- (end.west);
+        \draw[->] (local.east) -- (plan.west);
+        \draw[->] (end.south) -- (plan.north);
+        \draw[->] (plan.south) -- ++(0,0) |- ++(0,-1.5)-| (local.south);
+        
+        
+    \end{tikzpicture}
+    \caption{Localisation and Path-planning Robotic System}
+    \label{fig:aircraft_stabilization}
+\end{figure}
+
+
+\subsection{Control Logic and Localization System}
+The control logic and localization system begins with real-time data acquisition from the Nooploop Tag and IMU sensors, integrated to estimate the robot’s position and orientation in the environment. Key components are as follows:
+
+\subsubsection*{Position Estimation}
+The Nooploop Tag provides the distances from fixed anchors placed at known locations in the room. Using these distances and the coordinates of the anchors, the system performs a weighted least squares (WLS) computation to estimate the robot’s current location.
+
+\subsubsection*{Orientation Calculation}
+An Inertial Measurement Unit (IMU) attached to the robot measures its yaw, enabling determination of the robot’s heading relative to North. This orientation information helps align the robot’s trajectory towards its intended destination.
+
+This continuous feedback loop, integrating the WLS-based location estimation with orientation data, provides the foundation for position tracking and path adjustments.
+
+\subsection{Path Planning with A* Algorithm}
+To guide the robot to a designated goal, a path-planning mechanism is integrated using the A* algorithm. This process operates as follows:
+
+\subsubsection*{Goal and Path Calculation}
+A target coordinate is defined as the goal for the robot. As the robot progresses, the A* algorithm is invoked to compute the optimal path from its estimated location to the goal.
+
+\subsubsection*{Real-Time Position Update}
+The robot’s estimated position is updated in real-time, allowing the A* algorithm to adjust the path based on the latest coordinates. This dynamic recalculation ensures that the robot moves efficiently toward the goal, adapting as it receives new position data.\\\\This separation of control logic and path planning allows for distinct computation layers, where localization updates enable the robot to effectively navigate toward predefined destinations within the operational environment.
+
+
+
+\subsection{Control Flow}
+\begin{itemize}
+    \item \textbf{Power Supply 5V}:
+        \begin{itemize}
+            \item \textbf{Input}: The system is powered by a 9V battery, which is stepped down to 5V using voltage regulator. This 5V supply is fed to the Arduino Leonardo and NoopLoop tag.
+            \item \textbf{Output}: Provides regulated 5V power to the entire system, ensuring all components receive stable voltage for operation.
+        \end{itemize}
+
+    \item \textbf{IMU MPU-9250}:
+        \begin{itemize}
+            \item \textbf{Input}: The IMU receives power from the Arduino Leonardo and senses the robot's orientation.
+            \item \textbf{Output}: After processing, the IMU provides real-time robot's yaw orientation 
+        \end{itemize}
+    \item \textbf{NoopLoop LinkTrack SS}:
+        \begin{itemize}
+            \item \textbf{Input}: The NoopLoop tag receives power from the 5V supply and positional reference from the UWB anchors. 
+            \item \textbf{Output}: The NoopLoop tag processes the data from the anchors and outputs the x and y coordinates relative to each anchors to the Arduino Leonardo.
+        \end{itemize}
+    \item \textbf{Arduino Leonardo}:
+        \begin{itemize}
+            \item \textbf{Input}: The Arduino Leonardo receives 5V power from the regulated power supply. It also collects positional data from the NoopLoop LinkTrack SS, providing real-time x and y coordinates, and orientation data from the IMU MPU-9250, such as yaw orientation, linear acceleration, and angular velocity.
+            \item \textbf{Output}: The processed positional and orientation data is sent to MATLAB, which updates the occupancy grid in real-time, visualizing the robot’s movement relative to obstacles and the goal position. This information aids the operator in navigating the robotic platform accurately across the environment.
+        \end{itemize}
+    \item \textbf{Robotic Platform}:
+        \begin{itemize}
+            \item \textbf{Input}: The positional and orientation data processed by the Arduino Leonardo allows the robotic platform to be teleoperated to navigate across the environment.
+            \item \textbf{Output}: As the robotic platform moves, its updated position is displayed on the binary occupancy grid in MATLAB. The platform’s movement across the grid helps visualize its progress relative to obstacles and the goal location, providing a demonstration of the localization and navigation system.
+        \end{itemize}
+\end{itemize}
+
+
+
+
+\newpage
+\section{Circuit Diagram}
+The circuit diagram prioritizes compactness and clarity. The entire design is arranged on a breadboard, enabling quick prototyping, where the modular structure allows for easy reconfiguration or replacement of individual components.\\\\ 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\linewidth]{Circuit3rdproject_schem.png}
+    \caption{System Schematic View }
+    \label{fig:enter-label}
+\end{figure}
+
+This schematic shows an electrical system with an Arduino Leonardo, a NoopLoop Linktrack SS, and an MPU-9250 IMU sensor. A 9V power supply is stepped down to 5V and 3.3V via a DC-DC converter to provide voltage for all components. Both the IMU and the arduino are supplied with 3.3V, while the nooploop tag is provided with 5V.
+
+\chapter{NoopLoop Linktrack SS Ultra Wideband Sensor Characterization}
+\section{Overview}
+This section evaluates the accuracy of the localization system by comparing three data sources: the position provided directly by the Nooploop Linktrack SS which acts as a Tag, the position calculated using the weighted least squares (WLS) technique based on distances from anchors, and the ground truth measured with a measuring tape. This comparison aims to assess the precision of the Nooploop Tag and the WLS calculation in estimating the robot's location relative to actual measurements.
+
+
+\section{Weighted Least Squares Method}
+
+
+\subsection{Least Squares Method}
+The Least Squares (LS) method serves as the a relatively simple approach for estimating the position of the robot using anchor distances. This method relies on a system of equations that relate the measured distances between the robot and known anchor positions, often defined relative to a primary anchor (Anchor A0). By minimizing the sum of squared differences between these calculated distances and measured values, the LS method estimates the robot's position. The method is relatively simple to calculate;\\\\However, this technique may be sensitive to errors caused by signal reflections and obstacles in the environment, which introduce multi-path effects that result in fluctuations in measured distances.
+
+\[
+A = \begin{bmatrix}
+2(x_4 - x_1) & 2(y_4 - y_1) \\
+2(x_4 - x_2) & 2(y_4 - y_2) \\
+2(x_4 - x_3) & 2(y_4 - y_3)
+\end{bmatrix}, \quad
+b = \begin{bmatrix}
+r_1^2 - r_4^2 - x_1^2 - y_1^2 + x_4^2 + y_4^2 \\
+r_2^2 - r_4^2 - x_2^2 - y_2^2 + x_4^2 + y_4^2 \\
+r_3^2 - r_4^2 - x_3^2 - y_3^2 + x_4^2 + y_4^2
+\end{bmatrix}
+\]
+
+\[
+\mathbf{x} = (x_t, y_t) \quad \text{using} \quad \mathbf{x} = (A^T A)^{-1} A^T \mathbf{b}
+\]
+
+
+
+\subsection{Multipathing Effects and Distance Fluctuations}
+
+In indoor environments, obstacles between the tag and anchors can cause multipathing, where radio signals reflect off surfaces before reaching the tag. This effect introduces variance in the measured distances, as signals take longer, indirect paths to reach the tag, resulting in overestimated distances and fluctuating readings. Such inaccuracies pose challenges for the standard Least Squares (LS) method, which assumes direct paths between tag and anchors. To address this, the Weighted Least Squares (WLS) method incorporates weights based on signal reliability, enhancing localization accuracy by prioritizing stronger line-of-sight (LOS) signals and reducing the impact of fluctuating distance measurements.
+
+
+
+\subsection{Weighted Least Squares Method}
+
+The WLS method builds upon the LS approach by incorporating weights that account for signal distortions due to obstructions and reflections. Specifically, the protocol outputs \texttt{fp\_rssi} and \texttt{rx\_rssi} values, with the difference (\texttt{rx\_rssi} - \texttt{fp\_rssi}) indicating the LOS state. A difference below 6 dB typically implies an LOS path, warranting a higher weight, while a difference above 10 dB indicates non-line-of-sight (NLOS), leading to a lower weight. When defining these weights, it is essential to ensure that the difference between \texttt{rx\_rssi} and \texttt{fp\_rssi} is not overly sensitive to the distance between the tag and anchors, where closer anchors have higher RSSI values and farther anchors have reduced RSSI. The weights should therefore be designed to avoid discriminating based on anchor proximity; hence, the computation for the weights utilizes the ratio between \texttt{fp\_rssi} and \texttt{rx\_rssi} as shown in the following formula.
+
+\[
+W_{a_i} = \frac{\text{fp\_rssi}_{a_i}}{\text{rx\_rssi}_{a_i}}
+\]\\\\A ratio closer to 1 has a higher weightage,which indicates that the particular anchor is within light of sight, and vice versa.\\\\The matrix W, contains weight for three anchors, as shown in the following.
+
+\[
+\mathbf{x} = (x_t, y_t) \quad \text{using} \quad \mathbf{x} = (A^T W^T W A)^{-1} A^T W^T W \mathbf{b}
+\]
+
+\subsubsection{Evaluation of Weighted Least Squares vs Least Squares Method: NLOS Scenario with four stationary Samples}
+
+This experiment compared estimated coordinates obtained from trilateration techniques (Weighted Least Squares and Least Squares) with ground-truth measurements, where a measuring tape was used to determine the actual distance from the tag to each of the four anchors. The tag remained stationary to ensure accurate ground-truth data for comparison.\\\\The tables below display the \textbf{estimated coordinates (Estimated X, Estimated Y) computed using distances from the Nooploop tag}, alongside \textbf{the actual coordinates (Actual X, Actual Y) measured using the tape}. The coordinates are computed with the two trilateration techniques listed below.\\\\The \textit{Diff X} and \textit{Diff Y} columns represent the absolute differences between the estimated and actual coordinates, calculated as follows:
+
+\[
+\text{Diff X} = | \text{Estimated X} - \text{Actual X} | 
+\]
+\[
+\text{Diff Y} = | \text{Estimated Y} - \text{Actual Y} |
+\]\hfill \break
+The last column "Number of Anchors with NLOS" is determined based on the explanation earlier - the difference between \textbf{rx\_rssi - fp\_rssi} for each anchor and for each coordinates.\hfill \break
+\newline
+\newline
+\textbf{Least Squares Method}
+
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|c|}
+        \hline
+        Estimated X & Estimated Y & Actual X & Actual Y & Diff X & Diff Y & \makecell{Number of \\ Anchors \\ with NLOS} \\
+        \hline
+        4.1102 & 10.2778 & 4.10 & 10.29 & 0.0012 & 0.0122 & 2 \\
+        5.6400 & 2.9839 & 5.64 & 2.99 & 0.0000 & 0.0061 & 1 \\
+        6.2881 & 2.7233 & 6.12 & 3.11 & 0.1681 & 0.3867 & 2 \\
+        0.9860 & 4.8166 & 0.98 & 4.76 & 0.0010 & 0.0566 & 1 \\
+        \hline
+    \end{tabular}
+    \caption{Estimation of tag position using Least Squares vs actual position with measuring tape, and with NLOS anchor information}
+    \label{tab:ls_comparison}
+\end{table}
+
+
+
+\[
+\text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (\text{Diff (X}_i{ or Y}_i)^2}
+\]\\\\Using this formula, we obtain the RMSE for the X and Y differences:
+
+\[
+\text{RMSE}_X = 0.0820432, \quad \text{RMSE}_Y = 0.195521
+\]
+\textbf{Weighted Least Square Method}
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|c|}
+        \hline
+        Estimated X & Estimated Y & Actual X & Actual Y & Diff X & Diff Y & \makecell{Number of \\ Anchors \\ with NLOS} \\
+        \hline
+        4.1093 & 10.2789 & 4.10 & 10.29 & 0.0093 & 0.0111 & 2 \\
+        5.6389 & 2.9843 & 5.64 & 2.99 & 0.0011 & 0.0057 & 1 \\
+        6.2852 & 2.7416 & 6.12 & 3.11 & 0.1652 & 0.3684 & 2 \\
+        0.9902 & 4.8105 & 0.98 & 4.76 & 0.0102 & 0.0505 & 1 \\
+        \hline
+    \end{tabular}
+    \caption{Estimation of tag position using Weighted Least Squares vs actual position with measuring tape, and with NLOS anchor information}
+    \label{tab:wls_comparison}
+\end{table}
+
+
+
+Using the formula to compute RMSE, we obtain the RMSE for the X and Y differences:
+
+\[
+\text{RMSE}_X = 0.080597 \quad \text{RMSE}_Y = 0.186175
+\]
+
+The result showed that there the weighted least square has a \textbf{slightly lower RMSE} for both for x coordinate position, and y coordinate position, by a difference of \textbf{-0.00145 and -0.00935} respectively. However, the limitations of the test include accurate distance measurements with the measuring tape - possibly human error, and insufficient samples to be able to notice the difference between the two techniques.
+
+
+\subsubsection{Overall Evaluation with 1612 samples}
+The second experiment aimed to further compare the accuracy of the Least Squares (LS) and Weighted Least Squares (WLS) methods under dynamic conditions.\\\\However, unlike the first experiment, this experiment uses the computed position from the nooploop as means of comparison - hence it may not be as reliable as ground truth measurment with the measuring tape.\\\\Unlike the first experiment, where the tag remained stationary, this test involved the Nooploop tag moving around a classroom filled with obstructions, such as tables, chairs, electronics, and around 30 people, creating significant multipathing and signal interference.
+
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|c|}
+        \hline
+        \multicolumn{1}{|c|}{} & \multicolumn{2}{c|}{\textbf{RMSE}} \\
+        \hline
+        & \textbf{x} & \textbf{y} \\
+        \hline
+        \textbf{Least Squares Method} & 0.124412789 & 0.107162519 \\
+        \textbf{Weighted Least Squares} & 0.122040966 & 0.106022362 \\
+        \hline
+    \end{tabular}
+    \caption{Comparison of RMSE values for Least Squares and Weighted Least Squares methods}
+    \label{tab:rmse_comparison}
+\end{table}\hfill \break
+The results are similar - the weighted least square has slightly lower RMSE values in comparison with least squares. However, as the ground truth is the distance obtained from the nooploop tag itself, the comparison may not be fair, though in this case the results are consistent with the first experiment with ground truth measurements.
+
+
+
+\chapter{Code Implementation}
+\lstset{ 
+  language=C++,                   
+  basicstyle=\ttfamily,            
+  frame=single,                    
+  captionpos=b,                    
+  numbers=left,                    
+  numberstyle=\tiny,               
+  keywordstyle=\color{blue},       
+  commentstyle=\color{red},      
+  breaklines=true,                 
+  backgroundcolor=\color{lightgray}, 
+  breakautoindent=true,            
+  showspaces=false,                
+  showstringspaces=false           
+}
+This section details the application code developed to manage the robot’s localization and pathfinding. Real-time position estimation is achieved through the Weighted Least Squares (WLS) method, which processes distance data received via the Arduino's serial port. A MATLAB application then integrates pathfinding using the A* algorithm on a binary occupancy grid map, guiding the robot from its current position to a designated goal while continuously updating its location. Orientation is handled using an external IMU library (detailed in the appendix), which leverages the Madgwick filter to minimize noise error from gyroscope. The Madgwick filter applies a gradient-descent algorithm, using accelerometer and magnetometer data to correct gyroscope measurements and provide accurate heading information.
+
+\subsection{}
+
+
+\subsection{Weighted Least Squares}
+We employ the Weighted Least Squares (WLS) method to estimate the position of a tag based on multiple distance measurements from multiple anchors. This approach enhances localization accuracy by assigning appropriate weights to each measurement, accounting for their varying reliability.\\We first set anchor positions: 
+\begin{lstlisting}
+anchorPositions = [0, 0; 0.485, 11.19; 5.478, 11.254; 6.866, 0];     
+\end{lstlisting}
+
+WLS adjusts the impact of each anchor’s measurement based on the associated rssiRatio. This is done by creating a diagonal weight matrix W using rssiRatios, where higher RSSI ratios correspond to greater weights, giving more influence to more reliable measurements:
+\begin{lstlisting}
+W = diag(rssiRatios);   
+\end{lstlisting}
+\[
+W = \begin{bmatrix}
+W_{A1} & 0 & 0 \\
+0 & W_{A2} & 0 \\
+0 & 0 & W_{A3}
+\end{bmatrix}
+\]
+$W_{A0}$ is omitted because $A_0$ serves as the reference anchor with coordinates (0,0) and does not contribute directly to the weighted least squares calculation.
+
+
+Next is to establish a system of equations, structured as A*x = b 
+
+\begin{lstlisting}
+    A = [
+        2 * (A1(1) - A0(1)), 2 * (A1(2) - A0(2));
+        2 * (A2(1) - A0(1)), 2 * (A2(2) - A0(2));
+        2 * (A3(1) - A0(1)), 2 * (A3(2) - A0(2))
+    ];
+
+    b = [
+        r0^2 - r1^2 - A0(1)^2 + A1(1)^2 - A0(2)^2 + A1(2)^2;
+        r0^2 - r2^2 - A0(1)^2 + A2(1)^2 - A0(2)^2 + A2(2)^2;
+        r0^2 - r3^2 - A0(1)^2 + A3(1)^2 - A0(2)^2 + A3(2)^2
+    ];
+\end{lstlisting}
+A is based on the differences in coordinates between each anchor and a reference anchor (anchor 0).
+The matrix b represents the differences in squared ranges, adjusted by the coordinates of each anchor and the reference anchor, to set up the problem for solving the unknown position.
+
+The transpose of \( A \) (\( A_T \)) is multiplied by the weight matrix \( W \) and then by \( A \) again, creating a weighted system that accounts for the reliability of each measurement. The inverse of this weighted system (\( \alpha_{\text{inv}} \)) and the weighted \( b \) vector (\( \beta \)) are computed. Finally, the estimated position is calculated by solving the matrix equation:
+
+\begin{lstlisting}
+    A_T = transpose(A);
+    alpha_inv = inv(A_T * W * A);
+    beta = A_T * W * b;
+    tagPosition = alpha_inv * beta;
+\end{lstlisting}
+
+
+\subsection{Integration with UWB}
+The Arduino code integrates with the NoopLoop LinkTrack SS UWB system to retrieve precise positioning data, including x, y, and z coordinates, RSSI values from multiple anchors. The code parses data packets, updates the robot's position and orientation, and then transmits this information to MATLAB, for real-time navigation and visualization. \\
+
+The Arduino code defines structs to store anchor and sensor data. This helps manage information efficiently, especially since the UWB data includes multiple values such as anchor distances, RSSI values, and coordinates.:
+\begin{lstlisting}
+struct AnchorNode {
+  uint8_t role;
+  uint8_t id;
+  float distance;   // Distance in meters
+  float fpRssi;     // FP RSSI in dB
+  float rxRssi;     // RX RSSI in dB
+};
+
+struct NLinkData {
+  uint8_t frameHeader;
+  uint8_t functionMark;
+  uint16_t frameLength;
+  float pos_x, pos_y, pos_z; // Position data
+  float gyro_x, gyro_y, gyro_z; // Gyroscope data
+  AnchorNode anchors[4]; // Array of anchor nodes
+};
+\end{lstlisting}
+The purpose of each struct are as follows:
+\begin{itemize}
+    \item \textbf{AnchorNode}: Stores data for each anchor, including its role, ID, distance, and RSSI values.
+    \item \textbf{NLinkData}: Stores parsed information from the UWB tag, such as position, gyroscope readings, and anchor details.
+\end{itemize}
+
+The Arduino code initializes serial communication to communicate with the UWB at a baud rate of 115200 to match the baud rates for the anchor and node tags as initialized in the NAssistant program.
+\begin{lstlisting}
+    void setup() {
+    Serial1.begin(115200);   // Initialize Serial1 for UWB communication
+}
+\end{lstlisting}
+
+The parsePacket() function is defined to process incoming data packets from the UWB module and extract information such as positional coordinates and anchor specific data.\\
+
+The parsePacket() function achieves this through the following components:
+\begin{itemize}
+    \item \textbf{Frame Header and Frame Length}: The function first verifies the frame header and length, which helps maintain data integrity.
+    \item \textbf{Position Data}: The function retrieves the x, y, and z coordinates of the robot based on the UWB’s trilateration calculations.
+    \item \textbf{Anchor Information}: The function then iterates over each anchor node, extracting the distance and RSSI values.
+\end{itemize}
+
+In the infinite loop() function, data is continuously read over Serial1. The valid data is identified by checking for the START$\_$BYTE ensures that only complete and verified packets are processed. This functionality is implemented with the following mechanisms:
+\begin{itemize}
+    \item \textbf{Packet Handling}: The code listens for incoming data and checks if the packet starts with the START$\_$BYTE. If so, it reads and stores incoming bytes until it reaches the specified frame length
+    \item \textbf{Checksum Verification}: A checksum verifies the integrity of the packet. If valid, the packet is parsed to update position and anchor data, which is then transmitted.
+\end{itemize}
+% \begin{lstlisting}
+%     if (!packetStarted) {
+%       if (incomingByte == START_BYTE) {
+%         packetStarted = true;
+%         bufferIndex = 0;
+%         frameLength = 0;
+%         buffer[bufferIndex++] = incomingByte;
+%       }
+%     } else {
+%       buffer[bufferIndex++] = incomingByte;
+%       ...
+% \end{lstlisting}
+
+The parsed UWB data is then transmitted to MATLAB via the sendExtendedData() function in a structured format which will allow for visualization and tracking of the robot’s position within an environment where:
+\begin{itemize}
+    \item \textbf{Positional Data}: The x and y coordinates are transmitted as comma-separated values, which allows MATLAB to track the robot’s position in real time.
+    \item \textbf{Anchor Data}: Each anchor’s distance and RSSI values are also transmitted.
+\end{itemize}
+
+\subsection{}
+
+\subsection{Yaw readings from the IMU}
+
+\[
+\theta_{\text{pitch}} = \text{atan2} \left( \frac{\text{accelY}}{\sqrt{\text{accelX}^2 + \text{accelZ}^2}} \right)
+\]
+
+\[
+\theta_{\text{roll}} = \text{atan2} \left( \frac{-\text{accelX}}{\sqrt{\text{accelY}^2 + \text{accelZ}^2}} \right)
+\]
+
+Where:
+\begin{itemize}
+    \item \( \theta_{\text{pitch}} \): The pitch angle calculated from accelerometer data.
+    \item \( \theta_{\text{roll}} \): The roll angle calculated from accelerometer data.
+    \item \( \text{accelX}, \text{accelY}, \text{accelZ} \): The accelerometer values along the X, Y, and Z axes.
+\end{itemize}
+
+
+
+\chapter{Conclusion}
+\section{Project Summary}
+The UWB sensor offers significant advantages for indoor localization, especially in challenging environments like warehouses where long aisles can obstruct line of sight. While technologies such as Bluetooth beacons, like those used by Google for tunnel localization on highways, are effective in certain scenarios, UWB provides superior signal range and accuracy compared to Bluetooth Low Energy (BLE), making it particularly well-suited for large indoor areas such as warehouses or factories. This capability allows UWB to monitor the position of objects or individuals over a broader space, whereas BLE may be restricted to smaller ranges. 
+
+UWB's precision is especially beneficial in complex environments where even slight positioning inaccuracies can lead to significant inefficiencies. 
+
+\section{Challenges}
+\begin{itemize}
+    \item The inclusion of IMU sensor MPU-9250 IMU also meant the use of sensor fusion which made full 3D orientation tracking more challenging, as the arduino lacked the ability to process yaw readings as fast as it is sensing.
+
+\end{itemize}
+
+\section{Future Improvements}
+There are also opportunities for sensor fusion, such as combining UWB with LiDAR, to further refine localization accuracy.  Although LIDAR cannot offer (absolute) positioning on its own, it can assist in determining whether there are obstacles around the sensor. When a detailed map of the surroundings is provided, the location can often be found by comparing certain impediments or static features between the LIDAR output and the map. Positioning with LIDAR alone is not feasible in situations with a lot of moving items, open areas, or areas with recurring patterns (such as a warehouse with identical aisles). For absolute positioning, LIDAR is can be used in conjunction with the UWB. Positioning can then be improved to millimeter precision thanks to LIDAR's accuracy. 
+
+Ultimately, this project highlights both the capabilities and limitations of UWB in real-world applications, showing how it could support a new wave of efficient, automated systems in logistics.
+
+\chapter{Appendix}
+
+% Define custom colors
+\definecolor{codegray}{gray}{0.9} % Light gray background
+\definecolor{keywordcolor}{RGB}{0, 0, 255} % Blue for keywords
+\definecolor{commentcolor}{RGB}{255, 0, 0} % Red for comments
+\definecolor{stringcolor}{RGB}{0, 0, 0} % Black for normal code
+
+% Configure listings with a custom style
+\lstdefinestyle{customcpp}{
+  backgroundcolor=\color{codegray}, % Set gray background for the code box
+  frame=single, % Draw a frame around the code box
+  rulecolor=\color{black}, % Frame color
+  keywordstyle=\color{keywordcolor}\bfseries, % Blue keywords
+  commentstyle=\color{commentcolor}, % Red comments
+  stringstyle=\color{stringcolor}, % Black strings
+  basicstyle=\ttfamily, % Monospace font
+  showstringspaces=false,
+  tabsize=4,
+  numbers=left,
+  numberstyle=\tiny\color{black},
+  breaklines=true,
+  breakatwhitespace=true,
+}
+\section{Madgwick Filter}
+
+This appendix provides a detailed overview of the MPU9250 library code, authored by the original developer of the library. The library implements a Madgwick filter to process sensor data from the IMU, which includes gyroscope, accelerometer, and magnetometer readings. By applying the Madgwick filter, the library estimates the orientation of the robot in real-time, calculating its yaw, pitch, and roll. This section outlines the general methods and algorithms used within the code to integrate sensor data, allowing for accurate and stable orientation tracking.
+
+
+\subsection{Key Techniques in the Madgwick Filter}
+
+\subsubsection{Quaternion-Based Orientation Representation}
+
+Quaternions are used to describe orientation because they do not suffer from gimbal lock, allowing for unrestricted 3D rotation. By using quaternions, the Madgwick filter ensures stability in orientation tracking, even when rotating around multiple axes.
+
+\begin{lstlisting}[style=customcpp, language=C++]
+// Initialize quaternion components
+double q0 = q[0], q1 = q[1], q2 = q[2], q3 = q[3];
+\end{lstlisting}
+
+\subsubsection{Gyroscope Integration for Initial Orientation Estimation}
+
+The filter starts by calculating the rate of change of the quaternion (i.e., orientation) based on gyroscope data (gx, gy, gz). This rate of change, or "quaternion derivative," is integrated over time to update the orientation.
+
+\begin{lstlisting}[style=customcpp, language=C++]
+qDot1 = 0.5f * (-q1 * gx - q2 * gy - q3 * gz);
+qDot2 = 0.5f * (q0 * gx + q2 * gz - q3 * gy);
+qDot3 = 0.5f * (q0 * gy - q1 * gz + q3 * gx);
+qDot4 = 0.5f * (q0 * gz + q1 * gy - q2 * gx);
+\end{lstlisting}
+
+\subsubsection{Normalization of Accelerometer and Magnetometer Data}
+
+To reduce error, the filter normalizes both accelerometer (ax, ay, az) and magnetometer (mx, my, mz) readings to unit vectors. This ensures the data contributes uniformly and minimizes distortion from varying sensor sensitivities or scaling issues.
+
+\begin{lstlisting}[style=customcpp, language=C++]
+// Normalize accelerometer
+double a_norm = ax * ax + ay * ay + az * az;
+if (a_norm == 0.) return;  // Avoid division by zero
+recipNorm = 1.0 / sqrt(a_norm);
+ax *= recipNorm;
+ay *= recipNorm;
+az *= recipNorm;
+
+// Normalize magnetometer
+double m_norm = mx * mx + my * my + mz * mz;
+if (m_norm == 0.) return;  // Avoid division by zero
+recipNorm = 1.0 / sqrt(m_norm);
+mx *= recipNorm;
+my *= recipNorm;
+mz *= recipNorm;
+\end{lstlisting}
+
+\subsubsection{Magnetic Reference Direction Calculation}
+
+The filter calculates an auxiliary reference vector representing the Earth’s magnetic field direction.
+
+\begin{lstlisting}[style=customcpp, language=C++]
+// Compute auxiliary variables for Earth's magnetic field reference
+_2q0mx = 2.0f * q0 * mx;
+_2q0my = 2.0f * q0 * my;
+_2q0mz = 2.0f * q0 * mz;
+_2q1mx = 2.0f * q1 * mx;
+
+hx = mx * q0q0 - _2q0my * q3 + _2q0mz * q2 + mx * q1q1 + _2q1 * my * q2 + _2q1 * mz * q3 - mx * q2q2 - mx * q3q3;
+hy = _2q0mx * q3 + my * q0q0 - _2q0mz * q1 + _2q1mx * q2 - my * q1q1 + my * q2q2 + _2q2 * mz * q3 - my * q3q3;
+_2bx = sqrt(hx * hx + hy * hy);
+_2bz = -_2q0mx * q2 + _2q0my * q1 + mz * q0q0 + _2q1mx * q3 - mz * q1q1 + _2q2 * my * q3 - mz * q2q2 + mz * q3q3;
+\end{lstlisting}
+
+\subsubsection{Gradient Descent Error Correction}
+
+To correct for gyroscope drift, the filter minimizes the orientation error using gradient descent.
+
+\begin{lstlisting}[style=customcpp, language=C++]
+// Compute gradient descent corrective step
+s0 = -_2q2 * (2.0f * q1q3 - _2q0q2 - ax) + _2q1 * (2.0f * q0q1 + _2q2q3 - ay) 
+    - _2bz * q2 * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) 
+    + (-_2bx * q3 + _2bz * q1) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) 
+    + _2bx * q2 * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+
+s1 = _2q3 * (2.0f * q1q3 - _2q0q2 - ax) + _2q0 * (2.0f * q0q1 + _2q2q3 - ay) 
+    - 4.0f * q1 * (1 - 2.0f * q1q1 - 2.0f * q2q2 - az) 
+    + _2bz * q3 * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) 
+    + (_2bx * q2 + _2bz * q0) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) 
+    + (_2bx * q3 - _4bz * q1) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+
+s2 = -_2q0 * (2.0f * q1q3 - _2q0q2 - ax) + _2q3 * (2.0f * q0q1 + _2q2q3 - ay) 
+    - 4.0f * q2 * (1 - 2.0f * q1q1 - 2.0f * q2q2 - az) 
+    + (-_4bx * q2 - _2bz * q0) * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) 
+    + (_2bx * q1 + _2bz * q3) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) 
+    + (_2bx * q0 - _4bz * q2) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+
+s3 = _2q1 * (2.0f * q1q3 - _2q0q2 - ax) + _2q2 * (2.0f * q0q1 + _2q2q3 - ay) 
+    + (-_4bx * q3 + _2bz * q1) * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) 
+    + (-_2bx * q0 + _2bz * q2) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) 
+    + _2bx * q1 * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+\end{lstlisting}
+
+\subsubsection{Feedback Correction (Parameter beta)}
+
+The filter applies a feedback gain (beta) to control how much correction is applied to the quaternion derivative.
+
+\begin{lstlisting}[style=customcpp, language=C++]
+qDot1 -= beta * s0;
+qDot2 -= beta * s1;
+qDot3 -= beta * s2;
+qDot4 -= beta * s3;
+\end{lstlisting}
+
+\subsubsection{Quaternion Update and Normalization}
+
+After applying the corrective feedback, the filter integrates the quaternion rate of change, updating the orientation.
+
+\begin{lstlisting}[style=customcpp, language=C++]
+// Integrate to update quaternion
+q0 += qDot1 * deltaT;
+q1 += qDot2 * deltaT;
+q2 += qDot3 * deltaT;
+q3 += qDot4 * deltaT;
+
+// Normalize quaternion
+recipNorm = 1.0 / sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
+q0 *= recipNorm;
+q1 *= recipNorm;
+q2 *= recipNorm;
+q3 *= recipNorm;
+
+// Update quaternion array
+q[0] = q0;
+q[1] = q1;
+q[2] = q2;
+q[3] = q3;
+\end{lstlisting}
+
+
+\end{document}
+
