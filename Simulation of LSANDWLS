@@ -1,0 +1,68 @@
+% Main script to read data, estimate tag position using WLS, and compare with actual position
+% Load data file
+filename = 'data.csv';  % Replace with the actual CSV file path
+outputFilename = 'LS_act.csv';  % Output CSV file to save results
+
+% Read data from CSV with a delay, displaying results and comparing positions
+data = readtable(filename, 'VariableNamingRule', 'preserve');
+
+% Define the indices of the three anchors to use for ratios
+selectedAnchors = [1, 2, 3];  % Exclude anchor 0 from ratio computation
+
+% Initialize an array to store the comparison results
+results = [];
+
+for i = 1:height(data)
+    % Initialize arrays for the anchor ranges and RSSI ratios
+    anchorRanges = zeros(4, 1);    % We still need all four distances
+    rssiRatios = zeros(3, 1);      % Only three ratios (for a1, a2, a3)
+    
+    for j = 1:4  % Loop through all 4 anchors
+        % Construct the correct column names for each anchor
+        distanceCol = ['dis(m)' num2str(j)];
+        fpRssiCol = ['fpRssi(dB)' num2str(j)];
+        rxRssiCol = ['rxRssi(dB)' num2str(j)];
+
+        % Store the distance for each anchor
+        anchorRanges(j) = data.(distanceCol)(i);
+
+        % Compute RSSI ratio only for anchors a1, a2, and a3
+        if j > 1  % Skip anchor 0
+            k = j - 1;  % Index for rssiRatios starts at 1 for anchor a1
+            rssiRatios(k) = (data.(rxRssiCol)(i) / data.(fpRssiCol)(i));
+        end
+    end
+    
+    % Get the estimated position using Weighted Least Squares with selected ratios
+    disp(rssiRatios);
+    estimatedPosition = leastSquareMethod(anchorRanges, rssiRatios);
+
+    % Actual tag position from data
+    actualPosition = [data.pos_x(i), data.pos_y(i)];
+
+    % Calculate the differences
+    diffX = abs(estimatedPosition(1) - actualPosition(1));
+    diffY = abs(estimatedPosition(2) - actualPosition(2));
+
+    % Append results for this row to the results array
+    results = [results; estimatedPosition(1), estimatedPosition(2), actualPosition(1), actualPosition(2), diffX, diffY];
+    
+    % Display the comparison for the current row
+    disp('--- Position Comparison ---');
+    disp(['Estimated Position (WLS): X = ' num2str(estimatedPosition(1)) ', Y = ' num2str(estimatedPosition(2))]);
+    disp(['Actual Position: X = ' num2str(actualPosition(1)) ', Y = ' num2str(actualPosition(2))]);
+    disp(['Difference: ΔX = ' num2str(diffX) ', ΔY = ' num2str(diffY)]);
+    disp(' ');
+
+    % 500 ms delay
+    pause(0.01);
+end
+
+% Define column headers for the output CSV
+headers = {'Estimated_X', 'Estimated_Y', 'Actual_X', 'Actual_Y', 'Diff_X', 'Diff_Y'};
+
+% Write the headers and results to the output CSV file
+comparisonTable = array2table(results, 'VariableNames', headers);
+writetable(comparisonTable, outputFilename);
+
+disp(['Comparison results saved to ' outputFilename]);
