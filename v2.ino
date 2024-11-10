@@ -14,7 +14,7 @@ const unsigned long timeout = 5000;   // 5-second timeout
 static float robot_yaw = 0;
 // uint32_t prev_ms;
 
-MPU9250 mpu;
+// MPU9250 mpu;
 
 
 // Data structure to hold anchor node information
@@ -85,8 +85,6 @@ void setup() {
     Serial.begin(9600);
     Serial1.begin(115200);
     lastSerialActivity = millis(); // Initialize last activity timestamp
-    // prev_ms = millis();
-    // prev_ms = lastSerialActivity;
 }
 
 
@@ -189,11 +187,6 @@ void parsePacket(const uint8_t *buffer) {
 
 
 void sendExtendedData() {
-  // Convert the tag's coordinates to int (scaled by 10 to keep one decimal place)
-  // Position tagPosition = weightedLeastSquares();
-  // int tag_x = tagPosition.x;
-  // int tag_y = tagPosition.y;
-
   // Send the tag's position
   Serial.print(parsedData.pos_x);
   Serial.print(',');
@@ -268,7 +261,6 @@ void loop() {
         }
         if (calculatedChecksum == buffer[frameLength - 1]) {
           parsePacket(buffer);
-          // printParsedData();
           if(parsedData.validNodeQuantity >= 4){
               sendExtendedData();
           }
@@ -283,7 +275,7 @@ void loop() {
       if (mpu.update()) {
           static uint32_t prev_ms = millis();
           if (millis() > prev_ms + 500) {
-            robot_yaw = mpu.getYaw();  // Update yaw if needed
+            robot_yaw = mpu.getEulerZ();  // Update yaw if needed
             prev_ms = millis();
           }
          
