@@ -51,8 +51,9 @@ pathPlanningInterval = 2; % Time in seconds between path planning updates
 lastPlanningTime = tic;
 
 while true
-    % @Caleb this part you assume that the tagCoordinates being processed with the weightedLeastSquares. you try to do up the other sections first and ignore the two lines below this sentence
-    [tagCoordinates, ~, yaw] = ExtractAnchorAndTagInfo(s);
+    % Fetch or update the latest tag data
+    [tagCoordinates, anchorData, yaw] = ExtractAnchorAndTagInfo(s);
+    tagCoordinates = weightedLeastSquares()
     startPos = tagCoordinates;
 
 % Rotate the car image and its alpha channel based on the yaw value
