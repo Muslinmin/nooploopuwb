@@ -12,21 +12,15 @@ inflationRadius = 0.2;  % Adjust as neededk
 inflate(occupancyMap, inflationRadius);
 
 % Define goal position
-%goalPos = [8, 10.5];
 goalPos = [10, 10];
 startPos = [8,8];
 goalGrid = world2grid(occupancyMap, goalPos);
 
 
-% Plot map, anchors, and goal
+% Plot map and goal position
 show(occupancyMap);
 hold on;
 plot(goalPos(1), goalPos(2), 'bo', 'MarkerSize', 10, 'LineWidth', 2);
-
-%anchorCoordinates = [0, 0; 0.142, 11.238; 5.066, 11.387; 5.848, 0];
-%for i = 1:size(anchorCoordinates, 1)
-%    plot(anchorCoordinates(i, 1), anchorCoordinates(i, 2), 'bo', 'MarkerSize', 8);
-%end
 
 % Set up the initial car position and appearance
 [carImage, ~, carAlpha] = imread('car.png');
@@ -52,9 +46,10 @@ lastPlanningTime = tic;
 
 while true
     % Fetch or update the latest tag data
-    [tagCoordinates, anchorData, yaw] = ExtractAnchorAndTagInfo(s);
-    tagCoordinates = weightedLeastSquares()
-    startPos = tagCoordinates;
+    %tagCoordinates is not used
+    [tagCoordinates, anchorData,rssiRatios, yaw] = ExtractAnchorAndTagInfo(s);
+    coordinates = weightedLeastSquares(anchorData(:, 1), rssiRatios);
+    startPos = coordinates;
 
 % Rotate the car image and its alpha channel based on the yaw value
 rotatedCarImage = imrotate(carImage, -yaw, 'bilinear', 'crop');
