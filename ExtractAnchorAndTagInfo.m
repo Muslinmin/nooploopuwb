@@ -15,8 +15,8 @@ function [tagCoordinates, anchorRanges, rssiRatios, yaw] = ExtractAnchorAndTagIn
     if ~isempty(segments{1})
         tagCoords = strsplit(segments{1}, ',');
         if numel(tagCoords) == 2
-            % Convert and scale tag coordinates
-            tagCoordinates = [str2double(tagCoords{1}) / 10, str2double(tagCoords{2}) / 10];
+            % Convert tag coordinates
+            tagCoordinates = [str2double(tagCoords{1}), str2double(tagCoords{2})];
         end
     end
 
@@ -25,10 +25,10 @@ function [tagCoordinates, anchorRanges, rssiRatios, yaw] = ExtractAnchorAndTagIn
     for i = 1:anchorCount
         anchorVals = strsplit(segments{i+1}, ',');
         if numel(anchorVals) == 3
-            % Convert and scale each value
-            distance = str2double(anchorVals{1}) / 10;
-            fpRssi = str2double(anchorVals{2}) / 10;
-            rxRssi = str2double(anchorVals{3}) / 10;
+            % Convert each value
+            distance = str2double(anchorVals{1});
+            fpRssi = str2double(anchorVals{2});
+            rxRssi = str2double(anchorVals{3});
 
             % Store distance in anchorRanges
             anchorRanges(i) = distance;
@@ -42,7 +42,7 @@ function [tagCoordinates, anchorRanges, rssiRatios, yaw] = ExtractAnchorAndTagIn
 
     % Parse the yaw data from the last segment
     if length(segments) >= 6
-        yaw = str2double(segments{end}) / 10; % Scale yaw
+        yaw = str2double(segments{end}); % Parse yaw as a single value
     end
 
     % Close the serial port (optional)
