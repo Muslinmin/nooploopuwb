@@ -1,8 +1,9 @@
-function [tagCoordinates, anchorData, pitchRoll] = ExtractAnchorAndTagInfo(s)
+function [tagCoordinates, anchorRanges, rssiRatios, yaw] = ExtractAnchorAndTagInfo(s)
     % Initialize outputs
     tagCoordinates = [0, 0];
-    anchorData = zeros(4, 3); % Array for up to 4 anchors, each with distance, fpRssi, rxRssi
-    pitchRoll = [0, 0]; % Array for pitch and roll values
+    anchorRanges = zeros(4, 1); % Array for up to 4 anchors, each with distance
+    rssiRatios = zeros(3, 1);   % Array for RSSI ratios for anchors 2, 3, and 4
+    yaw = 0; % Initialize yaw as a single value
 
     % Read a line of data from the serial port
     rawData = fscanf(s, '%s'); % Read as string
@@ -14,28 +15,34 @@ function [tagCoordinates, anchorData, pitchRoll] = ExtractAnchorAndTagInfo(s)
     if ~isempty(segments{1})
         tagCoords = strsplit(segments{1}, ',');
         if numel(tagCoords) == 2
-            % Remove scaling for tag coordinates
-            tagCoordinates = [str2double(tagCoords{1}), str2double(tagCoords{2})];
+            % Convert and scale tag coordinates
+            tagCoordinates = [str2double(tagCoords{1}) / 10, str2double(tagCoords{2}) / 10];
         end
     end
 
     % Parse the anchor data
-    for i = 2:min(length(segments)-1, 5) % Anchor data starts from the 2nd segment and ends before pitch/roll
-        anchorVals = strsplit(segments{i}, ',');
+    anchorCount = min(length(segments)-2, 4); % Ensure we process up to 4 anchors
+    for i = 1:anchorCount
+        anchorVals = strsplit(segments{i+1}, ',');
         if numel(anchorVals) == 3
-            % Convert each value back to its original scale (divide by 10)
-            anchorData(i-1, :) = [str2double(anchorVals{1}) / 10, ...
-                                  str2double(anchorVals{2}) / 10, ...
-                                  str2double(anchorVals{3}) / 10];
+            % Convert and scale each value
+            distance = str2double(anchorVals{1}) / 10;
+            fpRssi = str2double(anchorVals{2}) / 10;
+            rxRssi = str2double(anchorVals{3}) / 10;
+
+            % Store distance in anchorRanges
+            anchorRanges(i) = distance;
+
+            % Calculate RSSI ratio for anchors 2, 3, and 4 (exclude the first anchor)
+            if i > 1
+                rssiRatios(i-1) = fpRssi / rxRssi;
+            end
         end
     end
 
-    % Parse pitch and roll data from the last segment
+    % Parse the yaw data from the last segment
     if length(segments) >= 6
-        pitchRollVals = strsplit(segments{end-1}, ',');
-        if numel(pitchRollVals) == 2
-            pitchRoll = [str2double(pitchRollVals{1}) / 10, str2double(pitchRollVals{2}) / 10];
-        end
+        yaw = str2double(segments{end}) / 10; % Scale yaw
     end
 
     % Close the serial port (optional)
