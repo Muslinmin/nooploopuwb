@@ -48,6 +48,8 @@ while true
     % Fetch or update the latest tag data
     %tagCoordinates is not used
     [tagCoordinates, anchorData,rssiRatios, yaw] = ExtractAnchorAndTagInfo(s);
+    %Distance/Range(m): anchorData(:,1);
+    %fp_Rssi/rx_Rssi values stored diagonally in rssiRatios
     coordinates = weightedLeastSquares(anchorData(:, 1), rssiRatios);
     startPos = coordinates;
 
